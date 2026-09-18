@@ -1,0 +1,45 @@
+import React from 'react';
+import { ShieldAlert, ArrowLeft, Lock } from 'lucide-react';
+
+interface AccessDenied403Props {
+  onBackToDashboard: () => void;
+}
+
+export const AccessDenied403: React.FC<AccessDenied403Props> = ({ onBackToDashboard }) => {
+  return (
+    <div className="min-h-[80vh] flex items-center justify-center p-6">
+      <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-red-100 shadow-xl text-center space-y-6">
+        <div className="w-20 h-20 bg-red-50 border-2 border-red-200 rounded-3xl mx-auto flex items-center justify-center shadow-inner text-red-600">
+          <ShieldAlert className="w-10 h-10" />
+        </div>
+
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-100 text-red-800 text-xs font-black tracking-wide uppercase">
+            <Lock className="w-3.5 h-3.5" />
+            <span>403 ACCESS DENIED</span>
+          </div>
+          <h1 className="text-2xl font-black text-stone-900 tracking-tight">Access Restricted</h1>
+          <p className="text-sm text-stone-600 leading-relaxed">
+            Photo & Media Settings can only be accessed by system administrators.
+          </p>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 text-left space-y-1.5 text-xs text-stone-500">
+          <div className="font-semibold text-stone-700">Security Clearance Notice:</div>
+          <p>
+            Focal Persons and Agents do not have authorization to view, upload, modify, or delete landing page media, municipal seals, or system branding assets.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onBackToDashboard}
+          className="w-full py-3 px-6 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold rounded-2xl transition cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-emerald-700/20"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back to Dashboard</span>
+        </button>
+      </div>
+    </div>
+  );
+};
