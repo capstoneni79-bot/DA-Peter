@@ -133,7 +133,7 @@ export const Header: React.FC<HeaderProps> = ({
                   ? 'bg-emerald-600 text-white shadow-2xs'
                   : 'text-stone-400 hover:text-stone-200'
               }`}
-              title="Switch language to English"
+              title="English"
             >
               EN
             </button>
@@ -146,9 +146,22 @@ export const Header: React.FC<HeaderProps> = ({
                   ? 'bg-emerald-600 text-white shadow-2xs'
                   : 'text-stone-400 hover:text-stone-200'
               }`}
-              title="Switch language to Cebuano / Bisaya"
+              title="Cebuano / Bisaya"
             >
               CEB
+            </button>
+            <span className="text-stone-600 px-0.5">•</span>
+            <button
+              type="button"
+              onClick={() => setLanguage('fil')}
+              className={`px-1.5 py-0.5 rounded font-bold cursor-pointer transition ${
+                language === 'fil'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'text-stone-400 hover:text-stone-200'
+              }`}
+              title="Filipino / Tagalog"
+            >
+              FIL
             </button>
           </div>
 
@@ -245,65 +258,8 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* User Account / Login State (Clean, no role switcher) */}
-          {currentUser ? (
-            <div className="relative">
-              <button
-                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-stone-300 hover:border-emerald-600 bg-stone-50 hover:bg-emerald-50/50 text-stone-800 text-xs font-semibold cursor-pointer transition shadow-2xs"
-              >
-                <div className="w-6 h-6 rounded-full bg-emerald-700 text-white flex items-center justify-center font-bold text-[11px]">
-                  {currentUser.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="text-left hidden sm:block">
-                  <div className="font-bold text-stone-900 leading-tight truncate max-w-[120px]">
-                    {currentUser.name.split(' ')[0]}
-                  </div>
-                  <div className="text-[10px] text-emerald-800 font-medium capitalize leading-tight">
-                    {currentUser.role}
-                  </div>
-                </div>
-                <ChevronDown className="w-3.5 h-3.5 text-stone-500" />
-              </button>
-
-              {/* User Menu Dropdown */}
-              {isUserMenuOpen && (
-                <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-stone-200 py-2 z-50 text-xs animate-in fade-in slide-in-from-top-2">
-                  <div className="px-4 py-3 border-b border-stone-100 bg-stone-50/80">
-                    <div className="font-bold text-stone-900 text-sm">{currentUser.name}</div>
-                    <div className="text-[11px] text-stone-500">{currentUser.username} • {currentUser.phone || 'No phone'}</div>
-                    <div className="mt-1">{getRoleBadge()}</div>
-                  </div>
-
-                  <div className="py-1">
-                    <button
-                      onClick={() => {
-                        setIsUserMenuOpen(false);
-                        onSelectRole('landing');
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-stone-50 text-stone-700 flex items-center gap-2 cursor-pointer font-medium"
-                    >
-                      <Home className="w-4 h-4 text-stone-400" />
-                      <span>{t('header_view_portal')}</span>
-                    </button>
-
-                    <div className="border-t border-stone-100 my-1" />
-
-                    <button
-                      onClick={() => {
-                        setIsUserMenuOpen(false);
-                        onLogout();
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-red-50 text-red-600 flex items-center gap-2 cursor-pointer font-bold"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      <span>{t('header_sign_out')}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
+          {/* Official Login Button (When not logged in) */}
+          {!currentUser && (
             <button
               onClick={onOpenLogin}
               className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-800 to-teal-800 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm hover:shadow-md transition cursor-pointer"

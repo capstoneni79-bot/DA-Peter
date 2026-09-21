@@ -1,1 +1,36 @@
 @import "tailwindcss";
+
+@media print {
+  /* Hide standard page elements */
+  nav, header, aside, .no-print, button, footer, .sidebar-container, .navbar-container {
+    display: none !important;
+  }
+
+  /* Reset body and container margins */
+  body, html {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Target certificate printing */
+  .printable-certificate-container {
+    position: relative !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 12mm 15mm !important;
+    border: none !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  @page {
+    size: portrait;
+    margin: 8mm;
+  }
+}

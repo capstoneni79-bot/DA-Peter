@@ -197,10 +197,6 @@ export const SwineTakeoffManager: React.FC<SwineTakeoffManagerProps> = ({
       <div className="bg-gradient-to-r from-emerald-950 via-teal-900 to-stone-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl border border-emerald-800/60 relative overflow-hidden">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-800/80 border border-emerald-700/60 text-emerald-200 text-xs font-semibold">
-              <Truck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>DA Hinunangan • Swine Dispatch, Gate Pass & Transit Command</span>
-            </div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
               Swine Ready for Take-Off & Dispatch
             </h1>

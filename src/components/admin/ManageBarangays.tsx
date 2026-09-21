@@ -16,6 +16,7 @@ import {
 import { Barangay } from '../../types';
 import { storageService } from '../../services/storageService';
 import { BarangayBoundaryMap } from '../gis/BarangayBoundaryMap';
+import { HINUNANGAN_BARANGAY_BOUNDARIES } from '../../data/hinunanganBoundariesGeoJSON';
 import {
   calculatePerimeterKm,
   calculatePolygonAreaHectares,
@@ -55,9 +56,11 @@ export const ManageBarangays: React.FC<ManageBarangaysProps> = ({ barangays, onR
     setSwineCount(b.swineCount || 0);
     setSurveillanceRadiusMeters(b.surveillanceRadiusMeters || 500);
 
-    // If existing polygon, use it; otherwise generate an initial boundary around its coordinates
+    // If existing polygon, use it; otherwise look up official boundary or generate
     if (b.boundaryPolygon && b.boundaryPolygon.length >= 3) {
       setBoundaryPolygon(b.boundaryPolygon);
+    } else if (HINUNANGAN_BARANGAY_BOUNDARIES[b.name]) {
+      setBoundaryPolygon(HINUNANGAN_BARANGAY_BOUNDARIES[b.name]);
     } else {
       setBoundaryPolygon(generateDefaultBoundary(b.latitude, b.longitude, 0.8, 6));
     }

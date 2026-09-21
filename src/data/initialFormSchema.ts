@@ -129,10 +129,10 @@ export const INITIAL_REGISTRY_FORM_SCHEMA: RegistryFormSchema = {
         },
         {
           id: 'fld_contact_phone',
-          label: 'Contact Mobile Number',
+          label: 'Contact Number',
           type: 'phone',
-          placeholder: '09XX-XXX-XXXX',
-          helpText: 'Used for ASF SMS broadcasts and buyer inquiries',
+          placeholder: '09123456789',
+          helpText: 'Contact number must contain exactly 11 digits.',
           required: true,
           visible: true,
         },

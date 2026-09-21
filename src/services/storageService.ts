@@ -141,7 +141,23 @@ export const storageService = {
       setItem(STORAGE_KEYS.SWINE, INITIAL_SWINE_RECORDS);
       return INITIAL_SWINE_RECORDS;
     }
-    return stored;
+    // Existing Data Compatibility: Normalize legacy 11-digit formatted contacts (e.g. 0917-888-9999 -> 09178889999)
+    let hasNormalized = false;
+    const normalized = stored.map(record => {
+      if (record.farmerContact && typeof record.farmerContact === 'string') {
+        const digits = record.farmerContact.replace(/\D/g, '');
+        if (digits.length === 11 && record.farmerContact !== digits) {
+          hasNormalized = true;
+          return { ...record, farmerContact: digits };
+        }
+      }
+      return record;
+    });
+
+    if (hasNormalized) {
+      setItem(STORAGE_KEYS.SWINE, normalized);
+    }
+    return normalized;
   },
 
   saveSwineRecords(records: SwineRecord[]): void {
@@ -149,15 +165,30 @@ export const storageService = {
   },
 
   addSwineRecord(record: SwineRecord): void {
+    // Backend/Database Layer Validation: Contact number must be exactly 11 numeric digits
+    if (!record.farmerContact || typeof record.farmerContact !== 'string' || !/^\d{11}$/.test(record.farmerContact)) {
+      throw new Error('Contact number must contain exactly 11 digits.');
+    }
+
     const records = this.getSwineRecords();
     const isOffline = this.isEffectiveOffline();
     const newRecord: SwineRecord = {
       ...record,
+      farmerContact: record.farmerContact.trim(),
       isSynced: !isOffline,
       updatedAt: new Date().toISOString(),
     };
     records.unshift(newRecord);
     this.saveSwineRecords(records);
+
+    // Sync to backend API if reachable
+    if (!isOffline && typeof fetch !== 'undefined') {
+      fetch('/api/swine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRecord),
+      }).catch(() => {});
+    }
 
     if (isOffline) {
       this.enqueueOfflineAction({
@@ -171,16 +202,30 @@ export const storageService = {
   },
 
   updateSwineRecord(updated: SwineRecord): void {
+    // Backend/Database Layer Validation: Contact number must be exactly 11 numeric digits
+    if (!updated.farmerContact || typeof updated.farmerContact !== 'string' || !/^\d{11}$/.test(updated.farmerContact)) {
+      throw new Error('Contact number must contain exactly 11 digits.');
+    }
+
     const records = this.getSwineRecords();
     const isOffline = this.isEffectiveOffline();
     const index = records.findIndex(r => r.id === updated.id);
     if (index !== -1) {
       records[index] = {
         ...updated,
+        farmerContact: updated.farmerContact.trim(),
         isSynced: !isOffline,
         updatedAt: new Date().toISOString(),
       };
       this.saveSwineRecords(records);
+
+      if (!isOffline && typeof fetch !== 'undefined') {
+        fetch(`/api/swine/${updated.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(records[index]),
+        }).catch(() => {});
+      }
 
       if (isOffline) {
         this.enqueueOfflineAction({
@@ -246,11 +291,19 @@ export const storageService = {
   // Barangays
   getBarangays(): Barangay[] {
     const stored = getItem<Barangay[] | null>(STORAGE_KEYS.BARANGAYS, null);
-    if (!stored || stored.length === 0) {
+    if (!stored || stored.length < 40) {
       setItem(STORAGE_KEYS.BARANGAYS, INITIAL_BARANGAYS);
       return INITIAL_BARANGAYS;
     }
-    return stored;
+    // Ensure accurate coordinates from INITIAL_BARANGAYS are preserved
+    const updated = stored.map(b => {
+      const official = INITIAL_BARANGAYS.find(ib => ib.name.toLowerCase() === b.name.toLowerCase());
+      if (official && (b.latitude !== official.latitude || b.longitude !== official.longitude)) {
+        return { ...b, latitude: official.latitude, longitude: official.longitude };
+      }
+      return b;
+    });
+    return updated;
   },
 
   saveBarangays(barangays: Barangay[]): void {
@@ -751,6 +804,13 @@ export const storageService = {
     // Also update draft to match published
     setItem(STORAGE_KEYS.REGISTRY_FORM_SCHEMA_DRAFT, published);
     window.dispatchEvent(new CustomEvent('da_registry_schema_change', { detail: published }));
+    if (typeof fetch !== 'undefined') {
+      fetch('/api/registry-schema', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(published),
+      }).catch(() => {});
+    }
   },
 
   getRegistryFormDraft(): RegistryFormSchema {
@@ -762,17 +822,34 @@ export const storageService = {
   },
 
   saveRegistryFormDraft(schema: RegistryFormSchema): void {
-    setItem(STORAGE_KEYS.REGISTRY_FORM_SCHEMA_DRAFT, {
+    const updated = {
       ...schema,
-      isPublished: false,
       lastUpdated: new Date().toISOString(),
-    });
+    };
+    setItem(STORAGE_KEYS.REGISTRY_FORM_SCHEMA_DRAFT, updated);
+    // Ensure the main form schema is synchronized immediately with latest admin customization settings
+    setItem(STORAGE_KEYS.REGISTRY_FORM_SCHEMA, updated);
+    window.dispatchEvent(new CustomEvent('da_registry_schema_change', { detail: updated }));
+    if (typeof fetch !== 'undefined') {
+      fetch('/api/registry-schema', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      }).catch(() => {});
+    }
   },
 
   resetRegistryFormSchema(): RegistryFormSchema {
     setItem(STORAGE_KEYS.REGISTRY_FORM_SCHEMA, INITIAL_REGISTRY_FORM_SCHEMA);
     setItem(STORAGE_KEYS.REGISTRY_FORM_SCHEMA_DRAFT, INITIAL_REGISTRY_FORM_SCHEMA);
     window.dispatchEvent(new CustomEvent('da_registry_schema_change', { detail: INITIAL_REGISTRY_FORM_SCHEMA }));
+    if (typeof fetch !== 'undefined') {
+      fetch('/api/registry-schema', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(INITIAL_REGISTRY_FORM_SCHEMA),
+      }).catch(() => {});
+    }
     return INITIAL_REGISTRY_FORM_SCHEMA;
   },
 

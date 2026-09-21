@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Download, Upload, X, CheckCircle, AlertTriangle, FileSpreadsheet, Eye } from 'lucide-react';
+import { Download, Upload, X, CheckCircle, AlertTriangle, FileSpreadsheet, Eye, ShieldCheck, Lock, AlertCircle } from 'lucide-react';
 import { Barangay, SwineRecord, UserAccount } from '../../types';
 import { storageService } from '../../services/storageService';
+import { isPointInsideHinunangan } from '../../utils/boundaryValidation';
 
 interface BatchImportModalProps {
   isOpen: boolean;
@@ -9,6 +10,15 @@ interface BatchImportModalProps {
   barangays: Barangay[];
   currentUser: UserAccount | null;
   onImportComplete: (count: number) => void;
+}
+
+interface RejectedImportRow {
+  earTag: string;
+  farmer: string;
+  barangay: string;
+  lat: number;
+  lng: number;
+  reason: string;
 }
 
 const SAMPLE_CSV = `EarTagNo,FarmerName,FarmerContact,Barangay,Breed,SwineType,WeightKg,AgeWeeks,ReadyToSell,EstimatedPricePhp,Latitude,Longitude
@@ -26,6 +36,7 @@ export const BatchImportModal: React.FC<BatchImportModalProps> = ({
 }) => {
   const [csvContent, setCsvContent] = useState('');
   const [parsedRecords, setParsedRecords] = useState<Partial<SwineRecord>[]>([]);
+  const [rejectedRecords, setRejectedRecords] = useState<RejectedImportRow[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -61,11 +72,13 @@ export const BatchImportModal: React.FC<BatchImportModalProps> = ({
       if (lines.length < 2) {
         setParseError('CSV must have a header line and at least 1 record row.');
         setParsedRecords([]);
+        setRejectedRecords([]);
         return;
       }
 
       const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-      const records: Partial<SwineRecord>[] = [];
+      const validRecords: Partial<SwineRecord>[] = [];
+      const invalidRows: RejectedImportRow[] = [];
 
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -78,12 +91,42 @@ export const BatchImportModal: React.FC<BatchImportModalProps> = ({
         };
 
         const bgName = getVal('barangay') || (currentUser?.assignedBarangay || 'Poblacion');
-        const bgObj = barangays.find(b => (b.name || '').toLowerCase() === (bgName || '').toLowerCase()) || barangays[0];
+        const bgObj = barangays.find(b => (b.name || '').toLowerCase() === (bgName || '').toLowerCase());
+
+        const lat = parseFloat(getVal('latitude') || String(bgObj?.latitude || 10.4042));
+        const lng = parseFloat(getVal('longitude') || String(bgObj?.longitude || 125.2017));
+        const earTag = getVal('eartagno') || `HN-${(bgName || 'POB').substring(0, 3).toUpperCase()}-${new Date().getFullYear()}-${100 + i}`;
+        const farmer = getVal('farmername') || 'Registered Raiser ' + i;
+
+        // Strict Territorial Exclusivity Check
+        if (!bgObj) {
+          invalidRows.push({
+            earTag,
+            farmer,
+            barangay: bgName,
+            lat,
+            lng,
+            reason: `Barangay "${bgName}" is not among the 40 official barangays of Hinunangan.`,
+          });
+          continue;
+        }
+
+        if (!isPointInsideHinunangan(lat, lng)) {
+          invalidRows.push({
+            earTag,
+            farmer,
+            barangay: bgName,
+            lat,
+            lng,
+            reason: `Coordinates (${lat.toFixed(4)}, ${lng.toFixed(4)}) are outside Hinunangan territory. Registrations from other provinces/municipalities are barred under EO 12-2023.`,
+          });
+          continue;
+        }
 
         const rec: Partial<SwineRecord> = {
           id: 'swine-batch-' + Date.now() + '-' + i,
-          earTagNo: getVal('eartagno') || `HN-${(bgName || 'POB').substring(0, 3).toUpperCase()}-${new Date().getFullYear()}-${100 + i}`,
-          farmerName: getVal('farmername') || 'Registered Raiser ' + i,
+          earTagNo: earTag,
+          farmerName: farmer,
           farmerContact: getVal('farmercontact') || '0900-000-0000',
           farmerAddress: `Brgy. ${bgName}, Hinunangan`,
           barangay: bgName,
@@ -93,8 +136,8 @@ export const BatchImportModal: React.FC<BatchImportModalProps> = ({
           ageWeeks: parseInt(getVal('ageweeks') || '22', 10),
           readyToSell: getVal('readytosell')?.toLowerCase() === 'true',
           estimatedPricePhp: parseFloat(getVal('estimatedpricephp') || '15000'),
-          latitude: parseFloat(getVal('latitude') || String(bgObj?.latitude || 10.4042)),
-          longitude: parseFloat(getVal('longitude') || String(bgObj?.longitude || 125.2017)),
+          latitude: lat,
+          longitude: lng,
           status: getVal('readytosell')?.toLowerCase() === 'true' ? 'ready_to_sell' : 'healthy',
           photoUrl: 'https://images.unsplash.com/photo-1516467508483-a7212febe31a?auto=format&fit=crop&w=600&q=80',
           biosecurity: {
@@ -115,13 +158,15 @@ export const BatchImportModal: React.FC<BatchImportModalProps> = ({
           isArchived: false,
         };
 
-        records.push(rec);
+        validRecords.push(rec);
       }
 
-      setParsedRecords(records);
+      setParsedRecords(validRecords);
+      setRejectedRecords(invalidRows);
     } catch (err: unknown) {
       setParseError('Failed to parse CSV: ' + (err instanceof Error ? err.message : String(err)));
       setParsedRecords([]);
+      setRejectedRecords([]);
     }
   };
 
@@ -155,6 +200,22 @@ export const BatchImportModal: React.FC<BatchImportModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-6 space-y-4 text-xs">
+          {/* Territorial Exclusivity Notice */}
+          <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-xl flex items-start gap-2.5">
+            <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-black text-emerald-950 text-xs">Territorial Exclusivity Notice</span>
+                <span className="bg-emerald-200 text-emerald-850 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Lock className="w-2.5 h-2.5" /> EO 12-2023
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-800 mt-0.5">
+                Every record must belong to one of Hinunangan's 40 barangays with pen coordinates strictly within the municipal boundary. Records from other provinces or municipalities are automatically rejected.
+              </p>
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center justify-between gap-3 bg-stone-50 p-4 rounded-xl border border-stone-200">
             <div>
               <span className="font-bold text-stone-800 text-sm block">CSV File Template</span>
@@ -201,12 +262,38 @@ export const BatchImportModal: React.FC<BatchImportModalProps> = ({
             </div>
           )}
 
+          {/* Rejected Out-of-Bounds Records */}
+          {rejectedRecords.length > 0 && (
+            <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl space-y-2">
+              <div className="flex items-center gap-2 text-red-900 font-bold">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>Rejected {rejectedRecords.length} record(s) outside Hinunangan territory:</span>
+              </div>
+              <p className="text-[11px] text-red-800">
+                The following entries cannot be registered because they are outside Hinunangan municipal boundaries or have invalid barangays:
+              </p>
+              <div className="max-h-32 overflow-y-auto divide-y divide-red-200 text-[10px]">
+                {rejectedRecords.map((rj, idx) => (
+                  <div key={idx} className="py-1.5 flex items-start justify-between gap-2">
+                    <div>
+                      <strong className="text-red-950">{rj.earTag}</strong> ({rj.farmer}, Brgy. {rj.barangay})
+                      <div className="text-red-700">{rj.reason}</div>
+                    </div>
+                    <span className="bg-red-200 text-red-900 font-extrabold px-1.5 py-0.5 rounded text-[9px] shrink-0">
+                      REJECTED
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {parsedRecords.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-stone-800 flex items-center gap-1.5">
                   <CheckCircle className="w-4 h-4 text-emerald-600" />
-                  Ready to import {parsedRecords.length} record(s):
+                  Verified Inside Hinunangan: {parsedRecords.length} record(s) ready to import:
                 </span>
               </div>
 
@@ -258,7 +345,7 @@ export const BatchImportModal: React.FC<BatchImportModalProps> = ({
             className="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
           >
             <CheckCircle className="w-4 h-4" />
-            <span>Confirm Import ({parsedRecords.length})</span>
+            <span>Confirm Import ({parsedRecords.length} Hinunangan Records)</span>
           </button>
         </div>
       </div>

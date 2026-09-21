@@ -11,29 +11,13 @@ import {
   SwineTakeoffRecord,
   UserAccount,
 } from '../types';
+import { OFFICIAL_BARANGAYS } from './barangays';
+import { HINUNANGAN_BARANGAY_BOUNDARIES } from './hinunanganBoundariesGeoJSON';
 
-export const INITIAL_BARANGAYS: Barangay[] = [
-  { id: 'brgy-1', name: 'Poblacion', code: 'POB', latitude: 10.4035, longitude: 125.2005, riskLevel: 'green', focalPersonName: 'Maria Santos', contactNumber: '0917-123-4501' },
-  { id: 'brgy-2', name: 'Labrador', code: 'LAB', latitude: 10.3950, longitude: 125.2100, riskLevel: 'green', focalPersonName: 'Juan Dela Cruz', contactNumber: '0918-234-5602' },
-  { id: 'brgy-3', name: 'Calag-itan', code: 'CAL', latitude: 10.4350, longitude: 125.1850, riskLevel: 'yellow', focalPersonName: 'Rodrigo Balagao', contactNumber: '0919-345-6703' },
-  { id: 'brgy-4', name: 'Canipaan', code: 'CAN', latitude: 10.4280, longitude: 125.2120, riskLevel: 'green', focalPersonName: 'Elena Ramos', contactNumber: '0920-456-7804' },
-  { id: 'brgy-5', name: 'Bangcas A', code: 'BCA', latitude: 10.4120, longitude: 125.1950, riskLevel: 'green', focalPersonName: 'Crispin Oclarit', contactNumber: '0921-567-8905' },
-  { id: 'brgy-6', name: 'Bangcas B', code: 'BCB', latitude: 10.4180, longitude: 125.1980, riskLevel: 'green', focalPersonName: 'Nenita Cadeliña', contactNumber: '0922-678-9006' },
-  { id: 'brgy-7', name: 'Biasong', code: 'BIA', latitude: 10.3850, longitude: 125.1950, riskLevel: 'green', focalPersonName: 'Arman Kuizon', contactNumber: '0923-789-0107' },
-  { id: 'brgy-8', name: 'Bitoon', code: 'BIT', latitude: 10.4080, longitude: 125.2150, riskLevel: 'green', focalPersonName: 'Lito Gervacio', contactNumber: '0924-890-1208' },
-  { id: 'brgy-9', name: 'Catublian', code: 'CAT', latitude: 10.4450, longitude: 125.1920, riskLevel: 'yellow', focalPersonName: 'Grace Abanador', contactNumber: '0925-901-2309' },
-  { id: 'brgy-10', name: 'Ilag', code: 'ILG', latitude: 10.3920, longitude: 125.2200, riskLevel: 'green', focalPersonName: 'Benito Tan', contactNumber: '0926-012-3410' },
-  { id: 'brgy-11', name: 'Ingan', code: 'ING', latitude: 10.4200, longitude: 125.1800, riskLevel: 'green', focalPersonName: 'Marilou Pates', contactNumber: '0927-123-4511' },
-  { id: 'brgy-12', name: 'Lumber', code: 'LUM', latitude: 10.4010, longitude: 125.1920, riskLevel: 'green', focalPersonName: 'Felipe Alcantara', contactNumber: '0928-234-5612' },
-  { id: 'brgy-13', name: 'Nava', code: 'NAV', latitude: 10.4400, longitude: 125.2050, riskLevel: 'green', focalPersonName: 'Teresita Go', contactNumber: '0929-345-6713' },
-  { id: 'brgy-14', name: 'Otikon', code: 'OTI', latitude: 10.4250, longitude: 125.2250, riskLevel: 'green', focalPersonName: 'Ramon Salazar', contactNumber: '0930-456-7814' },
-  { id: 'brgy-15', name: 'Pandan', code: 'PAN', latitude: 10.3980, longitude: 125.2080, riskLevel: 'green', focalPersonName: 'Clara Montejo', contactNumber: '0931-567-8915' },
-  { id: 'brgy-16', name: 'Pondol', code: 'PON', latitude: 10.4070, longitude: 125.2040, riskLevel: 'green', focalPersonName: 'Dario Mendoza', contactNumber: '0932-678-9016' },
-  { id: 'brgy-17', name: 'San Bernardo', code: 'SBE', latitude: 10.3800, longitude: 125.2050, riskLevel: 'green', focalPersonName: 'Amparo Dizon', contactNumber: '0933-789-0117' },
-  { id: 'brgy-18', name: 'Tahusan', code: 'TAH', latitude: 10.4480, longitude: 125.2200, riskLevel: 'green', focalPersonName: 'Danilo Flores', contactNumber: '0934-890-1218' },
-  { id: 'brgy-19', name: 'Talisay', code: 'TAL', latitude: 10.4050, longitude: 125.1980, riskLevel: 'green', focalPersonName: 'Gloria Baclayon', contactNumber: '0935-901-2319' },
-  { id: 'brgy-20', name: 'Tuburan', code: 'TUB', latitude: 10.4180, longitude: 125.2030, riskLevel: 'green', focalPersonName: 'Vicente Espina', contactNumber: '0936-012-3420' },
-];
+export const INITIAL_BARANGAYS: Barangay[] = OFFICIAL_BARANGAYS.map(b => ({
+  ...b,
+  boundaryPolygon: HINUNANGAN_BARANGAY_BOUNDARIES[b.name],
+}));
 
 export const INITIAL_ACCOUNTS: UserAccount[] = [
   {

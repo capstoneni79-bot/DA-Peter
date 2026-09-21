@@ -226,10 +226,6 @@ export const BarangayBiosecurity: React.FC<BarangayBiosecurityProps> = ({
         
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-800/80 border border-emerald-700/60 text-emerald-200 text-xs font-semibold">
-              <Shield className="w-3.5 h-3.5 text-emerald-400" />
-              <span>DA Hinunangan Municipal Biosecurity & Biosurveillance Desk</span>
-            </div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
               Barangay Biosecurity & ASF Zone Protection
             </h1>

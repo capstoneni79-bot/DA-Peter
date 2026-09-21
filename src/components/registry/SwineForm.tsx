@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Upload,
   Camera,
@@ -26,10 +26,26 @@ import {
   ExternalLink,
   BookOpen,
   Lock,
+  Building2,
 } from 'lucide-react';
-import { Barangay, BiosecurityChecklist, SwineRecord, SwineType, UserAccount } from '../../types';
+import {
+  Barangay,
+  BiosecurityChecklist,
+  SwineRecord,
+  SwineType,
+  UserAccount,
+  RegistryFormSchema,
+  RegistryFormField,
+  RegistryFormSection,
+} from '../../types';
 import { storageService } from '../../services/storageService';
+import {
+  ContactNumberInput,
+  isValidContactNumber,
+  CONTACT_NUMBER_ERROR_MESSAGE,
+} from '../common/ContactNumberInput';
 import { GisMap } from '../gis/GisMap';
+import { getBarangayCoordinates } from '../../data/barangays';
 import { SwineMatrixModal } from './SwineMatrixModal';
 import {
   calculateAgeFromBirthDate,
@@ -41,6 +57,10 @@ import {
   calculateEstimatedMarketPrice,
   evaluateSetbackBuffers,
 } from '../../utils/swineMatrixCalculator';
+import {
+  validateHinunanganRegistration,
+  isPointInsideHinunangan,
+} from '../../utils/boundaryValidation';
 
 interface SwineFormProps {
   barangays: Barangay[];
@@ -72,17 +92,71 @@ export const SwineForm: React.FC<SwineFormProps> = ({
   // If user is focal person, restrict to their assigned barangay
   const defaultBarangay = currentUser?.assignedBarangay || initialData?.barangay || barangays[0]?.name || 'Poblacion';
 
+  // Dynamic Form Customization Schema loaded from shared storageService
+  const [formSchema, setFormSchema] = useState<RegistryFormSchema>(() =>
+    storageService.getRegistryFormSchema()
+  );
+
+  useEffect(() => {
+    const handleSync = (e: any) => {
+      const latest = e.detail || storageService.getRegistryFormSchema();
+      setFormSchema(latest);
+    };
+    window.addEventListener('da_registry_schema_change', handleSync as EventListener);
+    return () => {
+      window.removeEventListener('da_registry_schema_change', handleSync as EventListener);
+    };
+  }, []);
+
+  const getField = (fieldId: string): RegistryFormField | undefined => {
+    for (const sec of formSchema.sections) {
+      const f = sec.fields?.find(field => field.id === fieldId);
+      if (f) return f;
+    }
+    return undefined;
+  };
+
+  const getSection = (secId: string): RegistryFormSection | undefined => {
+    return formSchema.sections.find(s => s.id === secId);
+  };
+
   // Ear Tag ID / Code Auto-Generated
   const [earTagNo, setEarTagNo] = useState(
     initialData?.earTagNo ||
       `HNG-${defaultBarangay.substring(0, 3).toUpperCase()}-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`
   );
   const [farmerName, setFarmerName] = useState(initialData?.farmerName || '');
-  const [farmerContact, setFarmerContact] = useState(initialData?.farmerContact || '');
+  
+  // Strict 11-digit Contact Number state
+  const cleanInitialContact = (initialData?.farmerContact || '').replace(/\D/g, '').slice(0, 11);
+  const [farmerContact, setFarmerContact] = useState<string>(cleanInitialContact);
+  const [contactError, setContactError] = useState<string | null>(null);
+  const [contactTouched, setContactTouched] = useState<boolean>(false);
+
   const [farmerAddress, setFarmerAddress] = useState(initialData?.farmerAddress || '');
   const [barangay, setBarangay] = useState(defaultBarangay);
   const [rsbsaId, setRsbsaId] = useState(initialData?.rsbsaId || '');
   const [farmType, setFarmType] = useState<'backyard' | 'commercial'>(initialData?.farmType || 'backyard');
+
+  // Schema-driven farm and farmer state
+  const [farmName, setFarmName] = useState<string>((initialData as any)?.farmName || '');
+  const [farmClassification, setFarmClassification] = useState<string>(
+    (initialData as any)?.farmClassification ||
+      (initialData?.farmType === 'commercial' ? 'Commercial Breeder (50+ heads)' : 'Backyard (1-10 heads)')
+  );
+  const [penCapacity, setPenCapacity] = useState<string | number>((initialData as any)?.penCapacity || '');
+  const [farmerEmail, setFarmerEmail] = useState<string>((initialData as any)?.email || (initialData as any)?.farmerEmail || '');
+  const [farmerResidentialAddress, setFarmerResidentialAddress] = useState<string>((initialData as any)?.residentialAddress || '');
+  const [asfClearanceStatus, setAsfClearanceStatus] = useState<string>((initialData as any)?.asfClearanceStatus || 'Cleared (Green Zone Active)');
+
+  // Custom field values state for dynamic admin-created fields
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, any>>(() => {
+    return (initialData as any)?.customFields || {};
+  });
+
+  const handleCustomFieldChange = (fieldId: string, val: any) => {
+    setCustomFieldValues(prev => ({ ...prev, [fieldId]: val }));
+  };
 
   // GIS Pen Coordinates & Setback Buffers
   const defaultBgObj = barangays.find(b => b.name === defaultBarangay) || barangays[0];
@@ -176,6 +250,13 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     distanceToBuiltUp
   );
 
+  // Evaluate geographic exclusivity live
+  const exclusivityAudit = validateHinunanganRegistration(
+    Number(latitude),
+    Number(longitude),
+    barangay
+  );
+
   // Calculate current age metrics in days
   const ageDetails = calculateAgeFromBirthDate(birthDate);
 
@@ -191,23 +272,16 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     if (!initialData) {
       handleRegenerateEarTag(newBg);
     }
-    const bgObj = barangays.find(b => b.name === newBg);
-    if (bgObj) {
-      setLatitude(bgObj.latitude + (Math.random() - 0.5) * 0.003);
-      setLongitude(bgObj.longitude + (Math.random() - 0.5) * 0.003);
-    }
+    const coords = getBarangayCoordinates(newBg);
+    setLatitude(coords.latitude);
+    setLongitude(coords.longitude);
   };
 
   // Re-center to Brgy GPS
   const handleRecenterToBrgyGps = () => {
-    const bgObj = barangays.find(b => b.name === barangay);
-    if (bgObj) {
-      setLatitude(Number(bgObj.latitude.toFixed(6)));
-      setLongitude(Number(bgObj.longitude.toFixed(6)));
-    } else {
-      setLatitude(10.3969);
-      setLongitude(125.1999);
-    }
+    const coords = getBarangayCoordinates(barangay);
+    setLatitude(coords.latitude);
+    setLongitude(coords.longitude);
   };
 
   const handleGetLiveGps = () => {
@@ -292,6 +366,1197 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     }
   };
 
+  const getSectionIcon = (secId: string, title: string) => {
+    const t = (secId + ' ' + title).toLowerCase();
+    if (t.includes('farm reg') || t.includes('piggery') || t.includes('facility') || secId === 'sec_farm') {
+      return <Building2 className="w-5 h-5 text-emerald-700" />;
+    }
+    if (t.includes('farmer') || t.includes('raiser') || t.includes('owner') || secId === 'sec_farmer') {
+      return <User className="w-5 h-5 text-emerald-700" />;
+    }
+    if (t.includes('swine') || t.includes('animal') || t.includes('livestock') || secId === 'sec_swine') {
+      return <Tag className="w-5 h-5 text-emerald-700" />;
+    }
+    if (t.includes('bio') || t.includes('health') || t.includes('asf') || secId === 'sec_biosecurity') {
+      return <ShieldCheck className="w-5 h-5 text-emerald-700" />;
+    }
+    if (t.includes('doc') || t.includes('cert') || secId === 'sec_documents') {
+      return <BookOpen className="w-5 h-5 text-emerald-700" />;
+    }
+    if (t.includes('gps') || t.includes('loc') || t.includes('gis') || t.includes('additional') || secId === 'sec_additional') {
+      return <MapPin className="w-5 h-5 text-emerald-700" />;
+    }
+    return <Layers className="w-5 h-5 text-emerald-700" />;
+  };
+
+  const renderFormField = (field: RegistryFormField, section: RegistryFormSection) => {
+    if (field.visible === false) return null;
+
+    // 1. Ear Tag
+    if (field.id === 'fld_ear_tag') {
+      return (
+        <div key={field.id} className="sm:col-span-2">
+          <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <label className="font-black text-emerald-950 text-xs">{field.label}</label>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-800 text-white font-black text-[10px] tracking-wide flex items-center gap-1 shadow-2xs">
+                  <Lock className="w-2.5 h-2.5 text-emerald-300" /> Locked & Auto-Generated
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-900">
+                Official Hinunangan barcode & ear tag structure: <code>[HNG]-[BRGY]-[YEAR]-[SEQ]</code>. Locked against manual tampering.
+              </p>
+            </div>
+            <div className="relative">
+              <input
+                type="text"
+                readOnly
+                required={field.required}
+                value={earTagNo}
+                className="px-3.5 py-2 pl-8 rounded-xl border border-emerald-300 font-mono font-black text-sm text-emerald-950 bg-emerald-100/70 cursor-not-allowed select-none shadow-inner"
+                title="Ear Tag ID is locked and auto-generated by the municipal registry"
+              />
+              <Lock className="w-3.5 h-3.5 text-emerald-700 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            </div>
+          </div>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 2. Contact Phone (Strict 11-digit ContactNumberInput)
+    if (field.id === 'fld_contact_phone' || field.type === 'phone') {
+      return (
+        <div key={field.id}>
+          <ContactNumberInput
+            id={`contact-input-${field.id}`}
+            value={farmerContact}
+            onChange={val => {
+              setFarmerContact(val);
+              if (contactTouched && !isValidContactNumber(val)) {
+                setContactError(CONTACT_NUMBER_ERROR_MESSAGE);
+              } else if (isValidContactNumber(val)) {
+                setContactError(null);
+              }
+            }}
+            label={field.label}
+            required={field.required}
+            placeholder={field.placeholder || '09123456789'}
+            helpText={field.helpText || 'Contact number must contain exactly 11 digits.'}
+            errorOverride={contactError}
+          />
+        </div>
+      );
+    }
+
+    // 3. Barangay (barangay_select or fld_barangay)
+    if (field.id === 'fld_barangay' || field.type === 'barangay_select') {
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <select
+            value={barangay}
+            disabled={currentUser?.role === 'focal'}
+            onChange={e => handleBarangayChange(e.target.value)}
+            required={field.required}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-hidden disabled:bg-stone-100 font-bold text-stone-800"
+          >
+            {barangays.map(b => (
+              <option key={b.id} value={b.name}>
+                Brgy. {b.name} ({b.riskLevel.toUpperCase()} Zone)
+              </option>
+            ))}
+          </select>
+          {currentUser?.role === 'focal' ? (
+            <p className="text-[10px] text-blue-600 mt-1">Designated to your focal jurisdiction.</p>
+          ) : field.helpText ? (
+            <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>
+          ) : null}
+        </div>
+      );
+    }
+
+    // 4. Farmer Name
+    if (field.id === 'fld_farmer_name') {
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <input
+            type="text"
+            required={field.required}
+            value={farmerName}
+            onChange={e => setFarmerName(e.target.value)}
+            placeholder={field.placeholder || 'e.g. Juan D. Dela Cruz'}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          />
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 5. Farm Name
+    if (field.id === 'fld_farm_name') {
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <input
+            type="text"
+            required={field.required}
+            value={farmName}
+            onChange={e => setFarmName(e.target.value)}
+            placeholder={field.placeholder || 'e.g. San Isidro Heritage Swine Farm'}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          />
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 6. Farm Classification
+    if (field.id === 'fld_farm_classification') {
+      const opts =
+        field.options && field.options.length > 0
+          ? field.options
+          : ['Backyard (1-10 heads)', 'Semi-Commercial (11-50 heads)', 'Commercial Breeder (50+ heads)'];
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <select
+            value={farmClassification}
+            onChange={e => {
+              setFarmClassification(e.target.value);
+              setFarmType(e.target.value.toLowerCase().includes('comm') ? 'commercial' : 'backyard');
+              handleCustomFieldChange('fld_farm_classification', e.target.value);
+            }}
+            required={field.required}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          >
+            {opts.map((opt, i) => (
+              <option key={i} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 7. Sitio / Purok
+    if (field.id === 'fld_sitio') {
+      return (
+        <div key={field.id} className="sm:col-span-2">
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <input
+            type="text"
+            required={field.required}
+            value={farmerAddress}
+            onChange={e => setFarmerAddress(e.target.value)}
+            placeholder={field.placeholder || 'e.g. Purok 3, Riverside'}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          />
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 8. Capacity
+    if (field.id === 'fld_capacity') {
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <input
+            type="number"
+            min="1"
+            max="5000"
+            required={field.required}
+            value={penCapacity}
+            onChange={e => setPenCapacity(e.target.value)}
+            placeholder={field.placeholder || 'e.g. 15'}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-bold focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          />
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 9. RSBSA ID
+    if (field.id === 'fld_rsbsa_id') {
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <input
+            type="text"
+            required={field.required}
+            value={rsbsaId}
+            onChange={e => setRsbsaId(e.target.value)}
+            placeholder={field.placeholder || '08-64-07-001-XXXXXX'}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-mono focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          />
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 10. Email Address
+    if (field.id === 'fld_email') {
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <input
+            type="email"
+            required={field.required}
+            value={farmerEmail}
+            onChange={e => setFarmerEmail(e.target.value)}
+            placeholder={field.placeholder || 'farmer@example.com'}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          />
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 11. Residential Address
+    if (field.id === 'fld_residential_address') {
+      return (
+        <div key={field.id} className="sm:col-span-2">
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <textarea
+            rows={2}
+            required={field.required}
+            value={farmerResidentialAddress}
+            onChange={e => setFarmerResidentialAddress(e.target.value)}
+            placeholder={field.placeholder || 'Purok, Barangay, Municipality'}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          />
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 12. Swine Breed (breed_select or fld_breed)
+    if (field.id === 'fld_breed' || field.type === 'breed_select') {
+      const breedOpts =
+        field.options && field.options.length > 0
+          ? field.options
+          : [
+              'Landrace x Large White',
+              'Landrace',
+              'Large White',
+              'Duroc',
+              'Pietrain',
+              'Native / Black Pig',
+              'Hybrid Cross / F1',
+            ];
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <input
+            list={`breed-list-${field.id}`}
+            required={field.required}
+            value={breed}
+            onChange={e => setBreed(e.target.value)}
+            placeholder={field.placeholder || 'Select or type breed'}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          />
+          <datalist id={`breed-list-${field.id}`}>
+            {breedOpts.map((b, i) => (
+              <option key={i} value={b} />
+            ))}
+          </datalist>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 13. Swine Category
+    if (field.id === 'fld_swine_category') {
+      return (
+        <div key={field.id}>
+          <div className="flex items-center justify-between mb-1">
+            <label className="font-bold text-stone-700">
+              {field.label} {field.required && <span className="text-red-500">*</span>}
+            </label>
+            <span className="text-[10px] text-emerald-700 font-black">Matrix Synced</span>
+          </div>
+          <select
+            value={swineType}
+            onChange={e => setSwineType(e.target.value as SwineType)}
+            required={field.required}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 font-bold text-stone-900 capitalize"
+          >
+            <option value="piglet">Piglet / Weanling (Biik)</option>
+            <option value="grower">Grower (Lumalaki)</option>
+            <option value="finisher">Finisher (Market Ready)</option>
+            <option value="sow">Breeder Sow (Inahin)</option>
+            <option value="boar">Breeder Boar (Barako)</option>
+          </select>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 14. Weight (kg)
+    if (field.id === 'fld_weight_kg') {
+      return (
+        <div key={field.id}>
+          <div className="flex items-center justify-between mb-1">
+            <label className="font-bold text-stone-700">
+              {field.label} {field.required && <span className="text-red-500">*</span>}
+            </label>
+            <span className="text-[10px] text-stone-500 font-medium">DA Benchmark</span>
+          </div>
+          <input
+            type="number"
+            step="0.1"
+            min="1"
+            max="450"
+            required={field.required}
+            value={weightKg}
+            onChange={e => {
+              const wt = Number(e.target.value);
+              setWeightKg(wt);
+              setEstimatedPricePhp(calculateEstimatedMarketPrice(wt));
+            }}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-mono font-black text-sm text-stone-900 focus:ring-2 focus:ring-emerald-600"
+          />
+          <span className="text-[10px] text-stone-500 mt-1 block">
+            {field.helpText || 'Target finisher: 85 - 100 kg'}
+          </span>
+        </div>
+      );
+    }
+
+    // 15. Gender
+    if (field.id === 'fld_gender') {
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <select
+            value={gender}
+            onChange={e => {
+              const g = e.target.value as 'male' | 'female' | 'castrated';
+              setGender(g);
+              if (autoSyncMatrix) {
+                const cat = autoDetermineSwineCategory(ageDays, weightKg, g);
+                setSwineType(cat);
+              }
+            }}
+            required={field.required}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 font-medium"
+          >
+            <option value="castrated">Castrated Male (Kapon)</option>
+            <option value="female">Female</option>
+            <option value="male">Intact Male (Barako)</option>
+          </select>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 16. Birth Date
+    if (field.id === 'fld_birth_date') {
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <input
+            type="date"
+            required={field.required}
+            value={birthDate}
+            onChange={e => handleBirthDateChange(e.target.value)}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 font-semibold text-stone-900"
+          />
+          <span className="text-[10px] text-stone-500 mt-1 block">
+            {field.helpText || `${ageDays} Days Old (${ageWeeks} Weeks)`}
+          </span>
+        </div>
+      );
+    }
+
+    // 17. Swine Photo
+    if (field.id === 'fld_swine_photo') {
+      return (
+        <div key={field.id} className="sm:col-span-2 md:col-span-3">
+          <label className="block font-bold text-stone-700 mb-2">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <div className="flex items-center gap-3 mb-3">
+                <label className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold px-4 py-2.5 rounded-xl border border-emerald-300 cursor-pointer flex items-center gap-2 transition">
+                  <Upload className="w-4 h-4" />
+                  <span>Upload / Snap Photo</span>
+                  <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                </label>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[11px] text-stone-500 font-medium">Quick sample catalog photo:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {SAMPLE_SWINE_PHOTOS.map((item, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setPhotoUrl(item.url)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border cursor-pointer transition ${
+                        photoUrl === item.url
+                          ? 'bg-emerald-700 text-white border-emerald-700'
+                          : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-300'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="w-full h-36 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 flex items-center justify-center overflow-hidden relative shadow-inner">
+                {photoUrl ? (
+                  <img src={photoUrl} alt="Swine Preview" className="w-full h-full object-cover rounded-2xl" />
+                ) : (
+                  <span className="text-stone-400 font-medium">No photo selected</span>
+                )}
+                <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-xs text-white px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1.5">
+                  <Tag className="w-3 h-3 text-emerald-400" />
+                  <span>{earTagNo}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 18. Biosecurity Checklists
+    if (field.id === 'fld_fence_installed') {
+      return (
+        <label
+          key={field.id}
+          className="flex items-start gap-2.5 p-3.5 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition"
+        >
+          <input
+            type="checkbox"
+            checked={biosecurity.perimeterFence}
+            onChange={e => setBiosecurity({ ...biosecurity, perimeterFence: e.target.checked })}
+            className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
+          />
+          <div>
+            <span className="font-bold text-stone-900">{field.label}</span>
+            <p className="text-[11px] text-stone-500">{field.helpText || 'Enclosed pen barrier preventing stray animals.'}</p>
+          </div>
+        </label>
+      );
+    }
+
+    if (field.id === 'fld_footbath_active') {
+      return (
+        <label
+          key={field.id}
+          className="flex items-start gap-2.5 p-3.5 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition"
+        >
+          <input
+            type="checkbox"
+            checked={biosecurity.footbathInstalled}
+            onChange={e => setBiosecurity({ ...biosecurity, footbathInstalled: e.target.checked })}
+            className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
+          />
+          <div>
+            <span className="font-bold text-stone-900">{field.label}</span>
+            <p className="text-[11px] text-stone-500">{field.helpText || 'Active chemical or lime footbath at entrance.'}</p>
+          </div>
+        </label>
+      );
+    }
+
+    if (field.id === 'fld_no_swill_ban') {
+      return (
+        <label
+          key={field.id}
+          className="flex items-start gap-2.5 p-3.5 rounded-2xl border border-emerald-300 bg-emerald-50/40 hover:bg-emerald-50 cursor-pointer transition"
+        >
+          <input
+            type="checkbox"
+            checked={biosecurity.noSwillFeeding}
+            onChange={e => setBiosecurity({ ...biosecurity, noSwillFeeding: e.target.checked })}
+            className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
+          />
+          <div>
+            <span className="font-bold text-emerald-950">{field.label}</span>
+            <p className="text-[11px] text-emerald-900">
+              {field.helpText || 'Strictly prohibits feeding restaurant scraps/kanin-baboy under Section 3 of EO 12-2023.'}
+            </p>
+          </div>
+        </label>
+      );
+    }
+
+    if (field.id === 'fld_asf_clearance_status') {
+      const asfOpts =
+        field.options && field.options.length > 0
+          ? field.options
+          : ['Cleared (Green Zone Active)', 'Buffer Monitored (Yellow Zone)', 'Quarantined / Observation (Red Zone)'];
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <select
+            value={asfClearanceStatus}
+            onChange={e => setAsfClearanceStatus(e.target.value)}
+            required={field.required}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          >
+            {asfOpts.map((opt, i) => (
+              <option key={i} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    if (field.id === 'fld_health_notes') {
+      return (
+        <div key={field.id} className="sm:col-span-2 md:col-span-3">
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <textarea
+            rows={2}
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder={field.placeholder || 'e.g. Swine is healthy and active. Inspected by Barangay Focal Person.'}
+            required={field.required}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          />
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 19. GPS Coordinates
+    if (field.id === 'fld_gps_coordinates' || field.type === 'gps') {
+      return (
+        <div key={field.id} className="sm:col-span-2 md:col-span-3 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-100 pb-3">
+            <div>
+              <label className="font-bold text-stone-900 text-sm block">
+                {field.label} {field.required && <span className="text-red-500">*</span>}
+              </label>
+              <span className="text-[11px] text-stone-500">
+                {field.helpText || 'GPS pen coordinates under Hinunangan Municipal EO 12-2023'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleRecenterToBrgyGps}
+                className="bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                title="Reset coordinates to official Barangay centroid GPS"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-stone-600" />
+                <span>Re-center to Brgy GPS</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleGetLiveGps}
+                className="bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                <span>Current GPS</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Territory Verification Banner */}
+          <div
+            className={`p-4 rounded-2xl border transition-all ${
+              exclusivityAudit.isValidLocation
+                ? 'bg-emerald-50/60 border-emerald-300'
+                : 'bg-red-50/90 border-red-300 ring-2 ring-red-400'
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-start gap-2.5">
+                {exclusivityAudit.isValidLocation ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`text-xs font-black uppercase tracking-wide ${
+                        exclusivityAudit.isValidLocation ? 'text-emerald-950' : 'text-red-950'
+                      }`}
+                    >
+                      {exclusivityAudit.isValidLocation
+                        ? '✓ Geographic Exclusivity Verified: Inside Hinunangan Territory'
+                        : '🚫 Out of Bounds: Outside Municipality of Hinunangan'}
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        exclusivityAudit.isValidLocation
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-red-200 text-red-900 animate-pulse'
+                      }`}
+                    >
+                      {exclusivityAudit.isValidLocation ? 'Exclusive to Hinunangan' : 'Registration Prohibited'}
+                    </span>
+                  </div>
+                  <p
+                    className={`text-[11px] mt-1 ${
+                      exclusivityAudit.isValidLocation ? 'text-emerald-800' : 'text-red-800 font-medium'
+                    }`}
+                  >
+                    {exclusivityAudit.isValidLocation
+                      ? `Pen coordinates fall within official Hinunangan municipal territory. Nearest registered centroid: Brgy. ${exclusivityAudit.closestBarangay} (${exclusivityAudit.distanceToBarangayCenterKm} km away).`
+                      : exclusivityAudit.errorMessage ||
+                        'GPS location is outside Hinunangan. Cannot register animals from other municipalities or provinces.'}
+                  </p>
+                </div>
+              </div>
+
+              {!exclusivityAudit.isValidLocation && (
+                <button
+                  type="button"
+                  onClick={handleRecenterToBrgyGps}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-xs shrink-0 flex items-center gap-1.5 transition cursor-pointer self-start sm:self-center"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Snap to Brgy. {barangay} GPS</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Latitude & Longitude Inputs */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block font-bold text-stone-700 mb-1">
+                Latitude (GPS) <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                step="0.000001"
+                required
+                value={latitude}
+                onChange={e => setLatitude(Number(e.target.value))}
+                placeholder="10.3969"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-mono font-bold text-stone-900 bg-stone-50/50 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold text-stone-700 mb-1">
+                Longitude (GPS) <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                step="0.000001"
+                required
+                value={longitude}
+                onChange={e => setLongitude(Number(e.target.value))}
+                placeholder="125.1999"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-mono font-bold text-stone-900 bg-stone-50/50 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+              />
+            </div>
+          </div>
+
+          {/* Environmental & Zoning Setbacks */}
+          <div className="pt-2 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-stone-800 text-xs uppercase tracking-wide">
+                Mandatory Physical Setback Distances (Zoning & Clean Water Act)
+              </span>
+              <span className="text-[11px] text-stone-500">Must satisfy minimum legal clearances</span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Water Source */}
+              <div
+                className={`p-4 rounded-2xl border transition-all ${
+                  setbackAudit.waterCompliant
+                    ? 'bg-emerald-50/40 border-emerald-300'
+                    : 'bg-red-50/60 border-red-300 ring-1 ring-red-400'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Droplets className="w-4 h-4 text-blue-600" />
+                    <label className="font-black text-stone-900">Distance to Water Source (m)</label>
+                  </div>
+                  {setbackAudit.waterCompliant ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  )}
+                </div>
+                <div className="text-[11px] font-bold text-stone-500 mb-2">
+                  Min required: <strong className="text-stone-900">&gt;25m</strong>
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  max="5000"
+                  value={distanceToWaterSource}
+                  onChange={e => setDistanceToWaterSource(Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 font-mono font-bold bg-white text-stone-900 focus:ring-2 focus:ring-emerald-600"
+                />
+              </div>
+
+              {/* School / Tourism */}
+              <div
+                className={`p-4 rounded-2xl border transition-all ${
+                  setbackAudit.tourismSchoolCompliant
+                    ? 'bg-emerald-50/40 border-emerald-300'
+                    : 'bg-red-50/60 border-red-300 ring-1 ring-red-400'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <School className="w-4 h-4 text-purple-600" />
+                    <label className="font-black text-stone-900">Distance to School/Tourism (m)</label>
+                  </div>
+                  {setbackAudit.tourismSchoolCompliant ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  )}
+                </div>
+                <div className="text-[11px] font-bold text-stone-500 mb-2">
+                  Min required: <strong className="text-stone-900">&gt;200m</strong>
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  max="10000"
+                  value={distanceToTourismSchool}
+                  onChange={e => setDistanceToTourismSchool(Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 font-mono font-bold bg-white text-stone-900 focus:ring-2 focus:ring-emerald-600"
+                />
+              </div>
+
+              {/* Built-up */}
+              <div
+                className={`p-4 rounded-2xl border transition-all ${
+                  setbackAudit.builtUpCompliant
+                    ? 'bg-emerald-50/40 border-emerald-300'
+                    : 'bg-red-50/60 border-red-300 ring-1 ring-red-400'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Home className="w-4 h-4 text-amber-600" />
+                    <label className="font-black text-stone-900">Distance to Built-up (m)</label>
+                  </div>
+                  {setbackAudit.builtUpCompliant ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  )}
+                </div>
+                <div className="text-[11px] font-bold text-stone-500 mb-2">
+                  Min required: <strong className="text-stone-900">&gt;50m</strong>
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  max="10000"
+                  value={distanceToBuiltUp}
+                  onChange={e => setDistanceToBuiltUp(Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 font-mono font-bold bg-white text-stone-900 focus:ring-2 focus:ring-emerald-600"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Map Picker Collapsible */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowMapPicker(!showMapPicker)}
+              className="text-xs text-emerald-800 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+            >
+              {showMapPicker ? '▼ Hide Interactive Map Picker' : '▶ Show Interactive Map Picker (Click map to adjust pin)'}
+            </button>
+
+            {showMapPicker && (
+              <div className="mt-2 rounded-2xl overflow-hidden border border-stone-200 shadow-xs">
+                <GisMap
+                  swineList={[]}
+                  barangays={barangays}
+                  selectedBarangay={barangay}
+                  isLocationPicker={true}
+                  initialCenter={[latitude, longitude]}
+                  onPickLocation={(lat, lng, closestBg) => {
+                    if (!isPointInsideHinunangan(lat, lng)) {
+                      alert('Location outside Hinunangan');
+                      return;
+                    }
+                    setLatitude(Number(lat.toFixed(6)));
+                    setLongitude(Number(lng.toFixed(6)));
+                    if (closestBg && currentUser?.role !== 'focal') {
+                      setBarangay(closestBg);
+                    }
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // 20. Ready to Sell
+    if (field.id === 'fld_ready_to_sell') {
+      return (
+        <div
+          key={field.id}
+          className="sm:col-span-2 p-3.5 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-3"
+        >
+          <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-900">
+            <input
+              type="checkbox"
+              checked={readyToSell}
+              onChange={e => {
+                setReadyToSell(e.target.checked);
+                if (e.target.checked) setStatus('ready_to_sell');
+              }}
+              className="w-4 h-4 text-amber-600 rounded border-amber-400 focus:ring-amber-500"
+            />
+            <span>{field.label}</span>
+          </label>
+          {field.helpText && <span className="text-[10px] text-amber-800">{field.helpText}</span>}
+        </div>
+      );
+    }
+
+    // 21. Estimated Price
+    if (field.id === 'fld_estimated_price') {
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <input
+            type="number"
+            step="50"
+            required={field.required}
+            value={estimatedPricePhp}
+            onChange={e => setEstimatedPricePhp(Number(e.target.value))}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-mono font-black text-sm text-emerald-900 bg-emerald-50/30 focus:ring-2 focus:ring-emerald-600"
+          />
+          <span className="text-[10px] text-emerald-700 font-medium mt-1 block">
+            {field.helpText || '₱180/kg municipal farmgate'}
+          </span>
+        </div>
+      );
+    }
+
+    // 22. Target Sell Date
+    if (field.id === 'fld_target_sell_date') {
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <input
+            type="date"
+            required={field.required}
+            value={targetSellDate}
+            onChange={e => setTargetSellDate(e.target.value)}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 font-bold text-stone-800"
+          />
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 23. File upload fields (e.g. fld_brgy_clearance_file, fld_vet_cert_file, or type === 'file')
+    if (field.type === 'file') {
+      const fileName = customFieldValues[field.id];
+      return (
+        <div key={field.id} className="sm:col-span-2">
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <div className="flex items-center gap-3">
+            <label className="bg-stone-50 hover:bg-stone-100 text-stone-800 font-bold px-3.5 py-2 rounded-xl border border-stone-300 cursor-pointer flex items-center gap-2 transition text-xs">
+              <Upload className="w-4 h-4 text-emerald-600" />
+              <span>Upload Document</span>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.jpg,.png"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    handleCustomFieldChange(field.id, file.name);
+                  }
+                }}
+                className="hidden"
+              />
+            </label>
+            {fileName ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
+                  📎 {fileName}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCustomFieldChange(field.id, '')}
+                  className="text-red-500 text-[11px] hover:underline"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <span className="text-[11px] text-stone-400">No document attached</span>
+            )}
+          </div>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 24. Image upload fields (not fld_swine_photo)
+    if (field.type === 'image') {
+      const imgData = customFieldValues[field.id];
+      return (
+        <div key={field.id} className="sm:col-span-2">
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <div className="flex items-center gap-3">
+            <label className="bg-stone-50 hover:bg-stone-100 text-stone-800 font-bold px-3.5 py-2 rounded-xl border border-stone-300 cursor-pointer flex items-center gap-2 transition text-xs">
+              <Camera className="w-4 h-4 text-emerald-600" />
+              <span>Choose Photo</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      handleCustomFieldChange(field.id, reader.result as string);
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+                className="hidden"
+              />
+            </label>
+            {imgData ? (
+              <div className="flex items-center gap-2">
+                <img
+                  src={imgData}
+                  alt={field.label}
+                  className="w-10 h-10 rounded-xl object-cover border border-emerald-500 shadow-2xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleCustomFieldChange(field.id, '')}
+                  className="text-red-500 text-[11px] hover:underline"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <span className="text-[11px] text-stone-400">No image attached</span>
+            )}
+          </div>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 25. Textarea
+    if (field.type === 'textarea') {
+      return (
+        <div key={field.id} className="sm:col-span-2">
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <textarea
+            rows={3}
+            value={customFieldValues[field.id] || ''}
+            onChange={e => handleCustomFieldChange(field.id, e.target.value)}
+            placeholder={field.placeholder || ''}
+            required={field.required}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          />
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 26. Dropdown
+    if (field.type === 'dropdown') {
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <select
+            value={customFieldValues[field.id] ?? field.defaultValue ?? ''}
+            onChange={e => handleCustomFieldChange(field.id, e.target.value)}
+            required={field.required}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+          >
+            <option value="">Select option...</option>
+            {field.options?.map((opt, idx) => (
+              <option key={idx} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 27. Radio buttons
+    if (field.type === 'radio') {
+      return (
+        <div key={field.id} className="sm:col-span-2">
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <div className="flex flex-wrap items-center gap-3 mt-1">
+            {field.options?.map((opt, idx) => (
+              <label key={idx} className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-stone-800">
+                <input
+                  type="radio"
+                  name={`radio-${field.id}`}
+                  value={opt}
+                  checked={
+                    customFieldValues[field.id] === opt ||
+                    (!customFieldValues[field.id] && field.defaultValue === opt)
+                  }
+                  onChange={() => handleCustomFieldChange(field.id, opt)}
+                  className="w-3.5 h-3.5 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>{opt}</span>
+              </label>
+            ))}
+          </div>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 28. Yes/No buttons
+    if (field.type === 'yes_no') {
+      const val = customFieldValues[field.id];
+      return (
+        <div key={field.id}>
+          <label className="block font-bold text-stone-700 mb-1">
+            {field.label} {field.required && <span className="text-red-500">*</span>}
+          </label>
+          <div className="flex items-center gap-2 mt-1">
+            <button
+              type="button"
+              onClick={() => handleCustomFieldChange(field.id, true)}
+              className={`px-3 py-1.5 rounded-xl font-bold text-xs border cursor-pointer transition ${
+                val === true
+                  ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
+                  : 'bg-stone-50 text-stone-700 border-stone-300 hover:bg-stone-100'
+              }`}
+            >
+              Yes
+            </button>
+            <button
+              type="button"
+              onClick={() => handleCustomFieldChange(field.id, false)}
+              className={`px-3 py-1.5 rounded-xl font-bold text-xs border cursor-pointer transition ${
+                val === false
+                  ? 'bg-red-700 text-white border-red-700 shadow-2xs'
+                  : 'bg-stone-50 text-stone-700 border-stone-300 hover:bg-stone-100'
+              }`}
+            >
+              No
+            </button>
+          </div>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // 29. Checkbox
+    if (field.type === 'checkbox') {
+      return (
+        <div key={field.id} className="sm:col-span-2">
+          <label className="flex items-center gap-2 mt-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!customFieldValues[field.id]}
+              onChange={e => handleCustomFieldChange(field.id, e.target.checked)}
+              className="w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
+            />
+            <span className="text-xs text-stone-800 font-bold">{field.label}</span>
+            {field.required && <span className="text-red-500">*</span>}
+          </label>
+          {field.helpText && <p className="text-[10px] text-stone-500 mt-0.5 ml-6">{field.helpText}</p>}
+        </div>
+      );
+    }
+
+    // Default: text, number, date, time
+    return (
+      <div key={field.id}>
+        <label className="block font-bold text-stone-700 mb-1">
+          {field.label} {field.required && <span className="text-red-500">*</span>}
+        </label>
+        <input
+          type={
+            field.type === 'number'
+              ? 'number'
+              : field.type === 'date'
+              ? 'date'
+              : field.type === 'time'
+              ? 'time'
+              : 'text'
+          }
+          value={customFieldValues[field.id] ?? ''}
+          onChange={e => handleCustomFieldChange(field.id, e.target.value)}
+          placeholder={field.placeholder || ''}
+          required={field.required}
+          className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+        />
+        {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+      </div>
+    );
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!farmerName.trim()) {
@@ -299,11 +1564,38 @@ export const SwineForm: React.FC<SwineFormProps> = ({
       return;
     }
 
+    // Strict Contact Number Validation: exactly 11 digits only
+    const contactReq = getField('fld_contact_phone')?.required ?? true;
+    if (contactReq || farmerContact.trim()) {
+      if (!isValidContactNumber(farmerContact)) {
+        setContactError(CONTACT_NUMBER_ERROR_MESSAGE);
+        setContactTouched(true);
+        alert(CONTACT_NUMBER_ERROR_MESSAGE);
+        return;
+      }
+    }
+
+    // Strict Geographic Exclusivity Check: Registration is strictly exclusive to Municipality of Hinunangan
+    const exclusivityCheck = validateHinunanganRegistration(
+      Number(latitude),
+      Number(longitude),
+      barangay
+    );
+    if (!exclusivityCheck.isValidLocation) {
+      alert(
+        `🚫 REGISTRATION REJECTED: LOCATION OUTSIDE HINUNANGAN\n\n` +
+          `The specified pen GPS coordinates (${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)}) are outside the territorial jurisdiction of the Municipality of Hinunangan, Southern Leyte.\n\n` +
+          `Under Municipal Executive Order No. 12-2023, swine and farm registration is strictly EXCLUSIVE to the 40 official barangays of Hinunangan. Registrations originating from other municipalities or other provinces are not permitted.\n\n` +
+          `Please adjust the coordinates or click "Re-center to Brgy GPS".`
+      );
+      return;
+    }
+
     const newRecord: SwineRecord = {
       id: initialData?.id || 'swine-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
       earTagNo,
       farmerName,
-      farmerContact,
+      farmerContact: farmerContact.trim(),
       farmerAddress: farmerAddress || `Brgy. ${barangay}, Hinunangan`,
       barangay,
       rsbsaId,
@@ -337,6 +1629,15 @@ export const SwineForm: React.FC<SwineFormProps> = ({
       registeredAt: initialData?.registeredAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isSynced: false,
+      farmName,
+      penCapacity: penCapacity ? Number(penCapacity) : undefined,
+      email: farmerEmail,
+      residentialAddress: farmerResidentialAddress,
+      customFields: {
+        ...customFieldValues,
+        farmClassification,
+        asfClearanceStatus,
+      },
     };
 
     if (initialData) {
@@ -390,978 +1691,155 @@ export const SwineForm: React.FC<SwineFormProps> = ({
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Section 1: Farmer & Farm Information */}
-        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-stone-200 shadow-xs space-y-4">
-          <div className="flex items-center gap-2 border-b border-stone-100 pb-3">
-            <User className="w-5 h-5 text-emerald-700" />
-            <h3 className="font-black text-stone-900 text-base">1. Farmer & Farm Identification</h3>
-          </div>
+        {/* Schema-Driven Dynamic Sections matching Admin Customizer */}
+        {formSchema.sections
+          .filter(sec => sec.visible !== false)
+          .map((sec, secIndex) => {
+            const visibleFields = (sec.fields || []).filter(f => f.visible !== false);
+            if (visibleFields.length === 0) return null;
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
-            <div>
-              <label className="block font-bold text-stone-700 mb-1">
-                Farmer / Raiser Full Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={farmerName}
-                onChange={e => setFarmerName(e.target.value)}
-                placeholder="e.g. Teodoro M. Maglente"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-stone-700 mb-1">Contact Number</label>
-              <input
-                type="text"
-                value={farmerContact}
-                onChange={e => setFarmerContact(e.target.value)}
-                placeholder="0917-000-0000"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-stone-700 mb-1">
-                Barangay <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={barangay}
-                disabled={currentUser?.role === 'focal'}
-                onChange={e => handleBarangayChange(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-hidden disabled:bg-stone-100 font-bold text-stone-800"
-              >
-                {barangays.map(b => (
-                  <option key={b.id} value={b.name}>
-                    Brgy. {b.name} ({b.riskLevel.toUpperCase()} Zone)
-                  </option>
-                ))}
-              </select>
-              {currentUser?.role === 'focal' && (
-                <p className="text-[10px] text-blue-600 mt-1">Designated to your focal jurisdiction.</p>
-              )}
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block font-bold text-stone-700 mb-1">Purok / Sitio / Farm Location</label>
-              <input
-                type="text"
-                value={farmerAddress}
-                onChange={e => setFarmerAddress(e.target.value)}
-                placeholder="e.g. Purok 2, Near Barangay Spring"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-stone-700 mb-1">RSBSA Reference Number</label>
-              <input
-                type="text"
-                value={rsbsaId}
-                onChange={e => setRsbsaId(e.target.value)}
-                placeholder="08-64-07-001-XXXXXX"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-mono focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-stone-700 mb-1">Farm Scale Classification</label>
-              <select
-                value={farmType}
-                onChange={e => setFarmType(e.target.value as 'backyard' | 'commercial')}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
-              >
-                <option value="backyard">Backyard Raiser (1 - 10 heads)</option>
-                <option value="commercial">Commercial / Semi-Commercial (11+ heads)</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Section 2: GIS Pen Coordinates & Setback Buffers */}
-        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-stone-200 shadow-xs space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-100 pb-3">
-            <div className="flex items-center gap-2">
-              <MapPin className="w-5 h-5 text-emerald-700" />
-              <div>
-                <h3 className="font-black text-stone-900 text-base">
-                  2. GIS Pen Coordinates & Setback Buffers
-                </h3>
-                <span className="text-[11px] text-stone-500">
-                  Enforced under Hinunangan Municipal EO 12-2023 & Provincial Ordinance 2021-018
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleRecenterToBrgyGps}
-                className="bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-                title="Reset coordinates to official Barangay centroid GPS"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-stone-600" />
-                <span>Re-center to Brgy GPS</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleGetLiveGps}
-                className="bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-              >
-                <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                <span>Current GPS</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Latitude & Longitude Inputs */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-            <div>
-              <label className="block font-bold text-stone-700 mb-1">
-                Latitude (GPS) <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                step="0.000001"
-                required
-                value={latitude}
-                onChange={e => setLatitude(Number(e.target.value))}
-                placeholder="10.3969"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-mono font-bold text-stone-900 bg-stone-50/50 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
-              />
-              <span className="text-[10px] text-stone-500 mt-1 block">Default: 10.3969 (Hinunangan Corridor)</span>
-            </div>
-
-            <div>
-              <label className="block font-bold text-stone-700 mb-1">
-                Longitude (GPS) <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                step="0.000001"
-                required
-                value={longitude}
-                onChange={e => setLongitude(Number(e.target.value))}
-                placeholder="125.1999"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-mono font-bold text-stone-900 bg-stone-50/50 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
-              />
-              <span className="text-[10px] text-stone-500 mt-1 block">Default: 125.1999 (Hinunangan Corridor)</span>
-            </div>
-          </div>
-
-          {/* Three Statutory Environmental & Zoning Setbacks */}
-          <div className="pt-2 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-stone-800 text-xs uppercase tracking-wide">
-                Mandatory Physical Setback Distances (Zoning & Clean Water Act)
-              </span>
-              <span className="text-[11px] text-stone-500">Must satisfy minimum legal clearances</span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-              {/* Setback 1: Distance to Water Source */}
+            return (
               <div
-                className={`p-4 rounded-2xl border transition-all ${
-                  setbackAudit.waterCompliant
-                    ? 'bg-emerald-50/40 border-emerald-300'
-                    : 'bg-red-50/60 border-red-300 ring-1 ring-red-400'
-                }`}
+                key={sec.id}
+                className="bg-white rounded-3xl p-6 sm:p-7 border border-stone-200 shadow-xs space-y-4"
               >
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <Droplets className="w-4 h-4 text-blue-600" />
-                    <label className="font-black text-stone-900">Distance to Water Source (m)</label>
+                {/* Section Header */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    {getSectionIcon(sec.id, sec.title)}
+                    <div>
+                      <h3 className="font-black text-stone-900 text-base">
+                        {sec.title}
+                      </h3>
+                      {sec.description && (
+                        <p className="text-[11px] text-stone-500 mt-0.5">{sec.description}</p>
+                      )}
+                    </div>
                   </div>
-                  {setbackAudit.waterCompliant ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  ) : (
-                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-                  )}
-                </div>
-
-                <div className="text-[11px] font-bold text-stone-500 mb-2">
-                  Min required: <strong className="text-stone-900">&gt;25m</strong>
-                </div>
-
-                <input
-                  type="number"
-                  min="1"
-                  max="5000"
-                  value={distanceToWaterSource}
-                  onChange={e => setDistanceToWaterSource(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 font-mono font-bold bg-white text-stone-900 focus:ring-2 focus:ring-emerald-600"
-                />
-
-                {setbackAudit.waterCompliant ? (
-                  <div className="mt-2 text-[10px] text-emerald-800 font-bold flex items-center gap-1">
-                    <Check className="w-3 h-3 text-emerald-600" />
-                    <span>Compliant (&gt;25m buffer)</span>
-                  </div>
-                ) : (
-                  <div className="mt-2 text-[10px] text-red-700 font-bold flex items-start gap-1">
-                    <AlertTriangle className="w-3 h-3 text-red-600 shrink-0 mt-0.5" />
-                    <span>Violation: &le;25m risks leachate into water table</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Setback 2: Distance to Tourism / School */}
-              <div
-                className={`p-4 rounded-2xl border transition-all ${
-                  setbackAudit.tourismSchoolCompliant
-                    ? 'bg-emerald-50/40 border-emerald-300'
-                    : 'bg-red-50/60 border-red-300 ring-1 ring-red-400'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <School className="w-4 h-4 text-purple-600" />
-                    <label className="font-black text-stone-900">Distance to Tourism / School (m)</label>
-                  </div>
-                  {setbackAudit.tourismSchoolCompliant ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  ) : (
-                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-                  )}
-                </div>
-
-                <div className="text-[11px] font-bold text-stone-500 mb-2">
-                  Min required: <strong className="text-stone-900">&gt;200m</strong>
-                </div>
-
-                <input
-                  type="number"
-                  min="1"
-                  max="10000"
-                  value={distanceToTourismSchool}
-                  onChange={e => setDistanceToTourismSchool(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 font-mono font-bold bg-white text-stone-900 focus:ring-2 focus:ring-emerald-600"
-                />
-
-                {setbackAudit.tourismSchoolCompliant ? (
-                  <div className="mt-2 text-[10px] text-emerald-800 font-bold flex items-center gap-1">
-                    <Check className="w-3 h-3 text-emerald-600" />
-                    <span>Compliant (&gt;200m buffer)</span>
-                  </div>
-                ) : (
-                  <div className="mt-2 text-[10px] text-red-700 font-bold flex items-start gap-1">
-                    <AlertTriangle className="w-3 h-3 text-red-600 shrink-0 mt-0.5" />
-                    <span>Violation: &le;200m near school/resort</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Setback 3: Distance to Built-up Area */}
-              <div
-                className={`p-4 rounded-2xl border transition-all ${
-                  setbackAudit.builtUpCompliant
-                    ? 'bg-emerald-50/40 border-emerald-300'
-                    : 'bg-red-50/60 border-red-300 ring-1 ring-red-400'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <Home className="w-4 h-4 text-amber-600" />
-                    <label className="font-black text-stone-900">Distance to Built-up Area (m)</label>
-                  </div>
-                  {setbackAudit.builtUpCompliant ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  ) : (
-                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-                  )}
-                </div>
-
-                <div className="text-[11px] font-bold text-stone-500 mb-2">
-                  Min required: <strong className="text-stone-900">&gt;50m</strong>
-                </div>
-
-                <input
-                  type="number"
-                  min="1"
-                  max="10000"
-                  value={distanceToBuiltUp}
-                  onChange={e => setDistanceToBuiltUp(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 font-mono font-bold bg-white text-stone-900 focus:ring-2 focus:ring-emerald-600"
-                />
-
-                {setbackAudit.builtUpCompliant ? (
-                  <div className="mt-2 text-[10px] text-emerald-800 font-bold flex items-center gap-1">
-                    <Check className="w-3 h-3 text-emerald-600" />
-                    <span>Compliant (&gt;50m buffer)</span>
-                  </div>
-                ) : (
-                  <div className="mt-2 text-[10px] text-red-700 font-bold flex items-start gap-1">
-                    <AlertTriangle className="w-3 h-3 text-red-600 shrink-0 mt-0.5" />
-                    <span>Violation: &le;50m from neighbor homes</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Setback Status Notice */}
-            <div
-              className={`p-3 rounded-2xl border text-xs flex items-center justify-between gap-3 ${
-                setbackAudit.allCompliant
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
-                  : 'bg-amber-50 border-amber-300 text-amber-950'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                {setbackAudit.allCompliant ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                ) : (
-                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                )}
-                <span className="font-semibold text-[11px]">
-                  {setbackAudit.allCompliant
-                    ? 'All 3 Setback Buffers Satisfied: Compliant with Southern Leyte Prov. Ord. 2021-018 & Hinunangan EO 12-2023.'
-                    : `Setback Alert: ${setbackAudit.violationsCount} buffer condition(s) do not meet municipal minimum requirements.`}
-                </span>
-              </div>
-              {onViewOrdinance && (
-                <button
-                  type="button"
-                  onClick={onViewOrdinance}
-                  className="text-[11px] font-bold text-emerald-800 hover:underline shrink-0 flex items-center gap-1 cursor-pointer"
-                >
-                  <span>Ordinance Details</span>
-                  <ExternalLink className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Map Picker Collapsible */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowMapPicker(!showMapPicker)}
-              className="text-xs text-emerald-800 font-bold flex items-center gap-1 hover:underline cursor-pointer"
-            >
-              {showMapPicker ? '▼ Hide Interactive Map Picker' : '▶ Show Interactive Map Picker (Click map to adjust pin)'}
-            </button>
-
-            {showMapPicker && (
-              <div className="mt-2 rounded-2xl overflow-hidden border border-stone-200 shadow-xs">
-                <GisMap
-                  swineList={[]}
-                  barangays={barangays}
-                  selectedBarangay={barangay}
-                  isLocationPicker={true}
-                  initialCenter={[latitude, longitude]}
-                  onPickLocation={(lat, lng, closestBg) => {
-                    setLatitude(Number(lat.toFixed(6)));
-                    setLongitude(Number(lng.toFixed(6)));
-                    if (closestBg && currentUser?.role !== 'focal') {
-                      setBarangay(closestBg);
-                    }
-                  }}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Section 3: Swine Specifications (Automated Swine Age, Automated Category & Weight) */}
-        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-stone-200 shadow-xs space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-100 pb-3">
-            <div className="flex items-center gap-2">
-              <Tag className="w-5 h-5 text-emerald-700" />
-              <div>
-                <h3 className="font-black text-stone-900 text-base">
-                  3. Swine Specifications (Automated Age, Category & Weight)
-                </h3>
-                <span className="text-[11px] text-stone-500">
-                  DA-BAI Philippine Swine Growth Matrix & Municipal Farmgate Engine
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsMatrixModalOpen(true)}
-                className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Auto-Calculated Matrix</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Ear Tag Identification Card with Auto-Generated Badge (LOCKED) */}
-          <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 flex flex-wrap items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <label className="font-black text-emerald-950 text-xs">Ear Tag ID / Code</label>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-800 text-white font-black text-[10px] tracking-wide flex items-center gap-1 shadow-2xs">
-                  <Lock className="w-2.5 h-2.5 text-emerald-300" /> Locked & Auto-Generated
-                </span>
-              </div>
-              <p className="text-[11px] text-emerald-900">
-                Official Hinunangan barcode & ear tag structure: <code>[HNG]-[BRGY]-[YEAR]-[SEQ]</code>. Locked against manual tampering.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <input
-                  type="text"
-                  readOnly
-                  required
-                  value={earTagNo}
-                  className="px-3.5 py-2 pl-8 rounded-xl border border-emerald-300 font-mono font-black text-sm text-emerald-950 bg-emerald-100/70 cursor-not-allowed select-none shadow-inner"
-                  title="Ear Tag ID is locked and auto-generated by the municipal registry"
-                />
-                <Lock className="w-3.5 h-3.5 text-emerald-700 absolute left-2.5 top-1/2 -translate-y-1/2" />
-              </div>
-            </div>
-          </div>
-
-          {/* Automated Swine Age & Matrix Controls */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-            {/* Birth Date / Farrowing Date */}
-            <div>
-              <label className="block font-bold text-stone-700 mb-1">
-                Birth Date / Farrowing Date
-              </label>
-              <input
-                type="date"
-                value={birthDate}
-                onChange={e => handleBirthDateChange(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 font-semibold text-stone-900"
-              />
-              <span className="text-[10px] text-stone-500 mt-1 block">Farrowing record</span>
-            </div>
-
-            {/* Automated Age in Days */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-bold text-stone-700">Age (Days)</label>
-                <span className="text-[10px] text-emerald-700 font-black">Auto-Calculated</span>
-              </div>
-              <input
-                type="number"
-                min="1"
-                max="2500"
-                value={ageDays}
-                onChange={e => handleAgeDaysChange(Number(e.target.value))}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-bold text-stone-900 focus:ring-2 focus:ring-emerald-600 bg-white"
-              />
-              <span className="text-[10px] text-emerald-800 font-semibold mt-1 block truncate">
-                {ageDays} Days Old
-              </span>
-            </div>
-
-            {/* Automated Swine Category */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-bold text-stone-700">Automated Category</label>
-                <span className="text-[10px] text-emerald-700 font-black">Matrix Synced</span>
-              </div>
-              <select
-                value={swineType}
-                onChange={e => setSwineType(e.target.value as SwineType)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 font-bold text-stone-900 capitalize"
-              >
-                <option value="piglet">Piglet / Weanling (Biik)</option>
-                <option value="grower">Grower (Lumalaki)</option>
-                <option value="finisher">Finisher (Market Ready)</option>
-                <option value="sow">Breeder Sow (Inahin)</option>
-                <option value="boar">Breeder Boar (Barako)</option>
-              </select>
-              <span className="text-[10px] text-stone-500 mt-1 block">Based on growth velocity</span>
-            </div>
-
-            {/* Gender */}
-            <div>
-              <label className="block font-bold text-stone-700 mb-1">Gender</label>
-              <select
-                value={gender}
-                onChange={e => {
-                  const g = e.target.value as 'male' | 'female' | 'castrated';
-                  setGender(g);
-                  if (autoSyncMatrix) {
-                    const cat = autoDetermineSwineCategory(ageDays, weightKg, g);
-                    setSwineType(cat);
-                  }
-                }}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 font-medium"
-              >
-                <option value="castrated">Castrated Male (Kapon)</option>
-                <option value="female">Female</option>
-                <option value="male">Intact Male (Barako)</option>
-              </select>
-            </div>
-
-            {/* Breed */}
-            <div>
-              <label className="block font-bold text-stone-700 mb-1">Breed / Genetics</label>
-              <input
-                type="text"
-                value={breed}
-                onChange={e => setBreed(e.target.value)}
-                placeholder="e.g. Landrace x Large White"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600"
-              />
-            </div>
-
-            {/* Automated Live Weight */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-bold text-stone-700">Live Weight (kg)</label>
-                <span className="text-[10px] text-stone-500 font-medium">DA Benchmark</span>
-              </div>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.1"
-                  min="1"
-                  max="450"
-                  value={weightKg}
-                  onChange={e => {
-                    const wt = Number(e.target.value);
-                    setWeightKg(wt);
-                    setEstimatedPricePhp(calculateEstimatedMarketPrice(wt));
-                  }}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-mono font-black text-sm text-stone-900 focus:ring-2 focus:ring-emerald-600"
-                />
-              </div>
-              <span className="text-[10px] text-stone-500 mt-1 block">
-                Target finisher: 85 - 100 kg
-              </span>
-            </div>
-
-            {/* Estimated Price PHP */}
-            <div>
-              <label className="block font-bold text-stone-700 mb-1">Estimated Value (₱)</label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="50"
-                  value={estimatedPricePhp}
-                  onChange={e => setEstimatedPricePhp(Number(e.target.value))}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-mono font-black text-sm text-emerald-900 bg-emerald-50/30 focus:ring-2 focus:ring-emerald-600"
-                />
-              </div>
-              <span className="text-[10px] text-emerald-700 font-medium mt-1 block">
-                ₱180/kg municipal farmgate
-              </span>
-            </div>
-
-            {/* Health Status */}
-            <div>
-              <label className="block font-bold text-stone-700 mb-1">Health Status</label>
-              <select
-                value={status}
-                onChange={e => setStatus(e.target.value as SwineRecord['status'])}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 font-bold"
-              >
-                <option value="healthy">Healthy & Active</option>
-                <option value="ready_to_sell">Ready to Sell (Market Ready)</option>
-                <option value="quarantined">Under Observation / Quarantined</option>
-                <option value="sick">Sick (Requires Veterinary Visit)</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Tape Measure Formula Toggle */}
-          <div className="border-t border-stone-100 pt-4">
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer font-bold text-stone-800 text-xs">
-                <input
-                  type="checkbox"
-                  checked={useTapeFormula}
-                  onChange={e => setUseTapeFormula(e.target.checked)}
-                  className="w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-                />
-                <span className="flex items-center gap-1.5">
-                  <Scale className="w-4 h-4 text-amber-600" />
-                  <span>Use Measuring Tape Formula (When scale is not available in purok)</span>
-                </span>
-              </label>
-
-              {useTapeFormula && (
-                <span className="text-[11px] font-mono text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200">
-                  Formula: Girth² × Length ÷ 11,877
-                </span>
-              )}
-            </div>
-
-            {useTapeFormula && (
-              <div className="mt-3 p-4 rounded-2xl bg-amber-50/50 border border-amber-200 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs animate-in fade-in">
-                <div>
-                  <label className="block font-bold text-amber-950 mb-1">Heart Girth (cm)</label>
-                  <input
-                    type="number"
-                    value={heartGirthCm}
-                    onChange={e => handleTapeCalculation(Number(e.target.value), bodyLengthCm)}
-                    placeholder="e.g. 105"
-                    className="w-full px-3 py-2 rounded-xl border border-amber-300 bg-white font-mono font-bold"
-                  />
-                  <span className="text-[10px] text-amber-800 mt-1 block">Circumference behind front legs</span>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-amber-950 mb-1">Body Length (cm)</label>
-                  <input
-                    type="number"
-                    value={bodyLengthCm}
-                    onChange={e => handleTapeCalculation(heartGirthCm, Number(e.target.value))}
-                    placeholder="e.g. 95"
-                    className="w-full px-3 py-2 rounded-xl border border-amber-300 bg-white font-mono font-bold"
-                  />
-                  <span className="text-[10px] text-amber-800 mt-1 block">Base of ears to base of tail</span>
-                </div>
-
-                <div className="flex flex-col justify-end">
-                  <div className="bg-white p-2.5 rounded-xl border border-amber-300 text-center">
-                    <span className="text-[10px] font-bold text-stone-500 uppercase block">Calculated Weight:</span>
-                    <span className="text-base font-black text-amber-900 font-mono">
-                      {calculateWeightFromTapeFormula(heartGirthCm, bodyLengthCm)} kg
+                  <div className="flex items-center gap-2">
+                    {sec.isCustom && (
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                        Custom Section
+                      </span>
+                    )}
+                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-emerald-600" />
+                      Section {secIndex + 1}
                     </span>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
 
-          {/* Market Ready Checkbox Banner */}
-          <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-            <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-900">
-              <input
-                type="checkbox"
-                checked={readyToSell}
-                onChange={e => {
-                  setReadyToSell(e.target.checked);
-                  if (e.target.checked) setStatus('ready_to_sell');
-                }}
-                className="w-4 h-4 text-amber-600 rounded border-amber-400 focus:ring-amber-500"
-              />
-              <span>Mark this Swine as "Ready to Sell" (Enters Swine Take-Off & Marketing Alerts)</span>
-            </label>
-
-            {readyToSell && (
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-amber-900">Target Take-Off Date:</span>
-                <input
-                  type="date"
-                  value={targetSellDate}
-                  onChange={e => setTargetSellDate(e.target.value)}
-                  className="bg-white border border-amber-300 rounded-xl px-3 py-1.5 text-xs font-bold text-stone-800"
-                />
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Section 4: Swine Photo Verification */}
-        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-stone-200 shadow-xs space-y-4">
-          <div className="flex items-center gap-2 border-b border-stone-100 pb-3">
-            <Camera className="w-5 h-5 text-emerald-700" />
-            <h3 className="font-black text-stone-900 text-base">4. Swine Picture & Physical Verification</h3>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
-            <div>
-              <label className="block font-bold text-stone-700 mb-2">
-                Swine Photo (Device Camera or File Upload)
-              </label>
-
-              <div className="flex items-center gap-3 mb-3">
-                <label className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold px-4 py-2.5 rounded-xl border border-emerald-300 cursor-pointer flex items-center gap-2 transition">
-                  <Upload className="w-4 h-4" />
-                  <span>Upload / Snap Photo</span>
-                  <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-                </label>
-              </div>
-
-              {/* Sample Photo Selector */}
-              <div className="space-y-1">
-                <span className="text-[11px] text-stone-500 font-medium">Quick sample catalog photo:</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {SAMPLE_SWINE_PHOTOS.map((item, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setPhotoUrl(item.url)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border cursor-pointer transition ${
-                        photoUrl === item.url
-                          ? 'bg-emerald-700 text-white border-emerald-700'
-                          : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-300'
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <label className="block font-semibold text-stone-700 mb-1">Image URL / Path</label>
-                <input
-                  type="text"
-                  value={photoUrl}
-                  onChange={e => setPhotoUrl(e.target.value)}
-                  placeholder="https://..."
-                  className="w-full px-3 py-1.5 rounded-xl border border-stone-300 text-[11px] font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Photo Preview Card */}
-            <div>
-              <span className="block font-bold text-stone-700 mb-2">Live Verification Preview</span>
-              <div className="w-full h-44 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 flex items-center justify-center overflow-hidden relative shadow-inner">
-                {photoUrl ? (
-                  <img src={photoUrl} alt="Swine Preview" className="w-full h-full object-cover rounded-2xl" />
-                ) : (
-                  <span className="text-stone-400 font-medium">No photo selected</span>
-                )}
-                <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-xs text-white px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1.5">
-                  <Tag className="w-3 h-3 text-emerald-400" />
-                  <span>{earTagNo}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Section 5: African Swine Fever (ASF) Biosecurity Standards & Decrees */}
-        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-stone-200 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-100 pb-3">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-emerald-700" />
-              <div>
-                <h3 className="font-black text-stone-900 text-base">
-                  5. African Swine Fever (ASF) Biosecurity Standards & Compliance
-                </h3>
-                <span className="text-[11px] text-stone-500">
-                  Enforcing Hinunangan EO 12-2023 & Southern Leyte Provincial Ordinance 2021-018
-                </span>
-              </div>
-            </div>
-
-            {onViewOrdinance && currentUser?.role !== 'focal' && (
-              <button
-                type="button"
-                onClick={onViewOrdinance}
-                className="text-xs font-bold text-emerald-800 hover:text-emerald-950 flex items-center gap-1 cursor-pointer"
-              >
-                <span>Read Official Legal Mandates</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Automatic Calculated Biosecurity Compliance Percentage Card */}
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50/50 to-emerald-50/30 border border-emerald-200/90 shadow-2xs space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-black text-emerald-950">
-                  {biosecurityPercentage}%
-                </span>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-black text-xs text-stone-900">Biosecurity Score</span>
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-700 text-white font-black text-[9px] tracking-wide uppercase">
-                      Auto-Calculated
-                    </span>
+                {/* Section Special Banners: Hinunangan Administrative Exclusivity */}
+                {(sec.id === 'sec_farm' || sec.id === 'sec_farmer' || sec.fields.some(f => f.id === 'fld_barangay' && f.visible !== false)) && (
+                  <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-emerald-950 text-xs uppercase tracking-wider">
+                            Administrative Jurisdiction
+                          </span>
+                          <span className="bg-emerald-200/80 text-emerald-850 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 border border-emerald-300">
+                            <Lock className="w-2.5 h-2.5" /> Strictly Exclusive to Hinunangan
+                          </span>
+                        </div>
+                        <p className="text-xs text-emerald-900 font-semibold mt-0.5">
+                          Province of Southern Leyte • 40 Official Coastal & Highland Barangays
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right self-end sm:self-center">
+                      <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-1 rounded-lg border border-emerald-200">
+                        Municipal System Lock Active
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-[11px] text-stone-500">
-                    {totalBiosecurityChecked} of {totalBiosecurityStandards} Standards Verified
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                {biosecurityPercentage >= 80 ? (
-                  <span className="px-3 py-1 rounded-full bg-emerald-600 text-white font-black text-xs flex items-center gap-1.5 shadow-2xs">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Low ASF Risk • Green Zone Certified</span>
-                  </span>
-                ) : biosecurityPercentage >= 50 ? (
-                  <span className="px-3 py-1 rounded-full bg-amber-500 text-white font-black text-xs flex items-center gap-1.5 shadow-2xs">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>Moderate Risk • Conditional Pre-Movement</span>
-                  </span>
-                ) : (
-                  <span className="px-3 py-1 rounded-full bg-red-600 text-white font-black text-xs flex items-center gap-1.5 shadow-2xs">
-                    <AlertCircle className="w-3.5 h-3.5" />
-                    <span>High ASF Risk • Movement Prohibited</span>
-                  </span>
                 )}
-              </div>
-            </div>
 
-            {/* Dynamic Progress Bar */}
-            <div className="w-full bg-stone-200/80 rounded-full h-3 overflow-hidden p-0.5">
-              <div
-                className={`h-full rounded-full transition-all duration-300 ${
-                  biosecurityPercentage >= 80
-                    ? 'bg-emerald-600'
-                    : biosecurityPercentage >= 50
-                    ? 'bg-amber-500'
-                    : 'bg-red-600'
-                }`}
-                style={{ width: `${Math.max(4, biosecurityPercentage)}%` }}
-              />
-            </div>
+                {/* Swine Growth Matrix Banner */}
+                {(sec.id === 'sec_swine' || sec.fields.some(f => f.id === 'fld_weight_kg' || f.id === 'fld_swine_category')) && (
+                  <div className="bg-stone-50 border border-stone-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-700 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                        <Scale className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-stone-900 text-xs uppercase tracking-wider">
+                            DA-BAI Standard Swine Growth & Weight Matrix
+                          </span>
+                          <span className="bg-emerald-100 text-emerald-850 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 border border-emerald-200">
+                            <Sparkles className="w-2.5 h-2.5 text-emerald-600" /> Automated Benchmarking
+                          </span>
+                        </div>
+                        <p className="text-xs text-stone-600 mt-0.5">
+                          Calculated Stage: <strong className="text-emerald-800 uppercase font-black">{swineType}</strong> • Live Weight: <strong className="text-stone-900">{weightKg} kg</strong> • Estimated Market Value: <strong className="text-emerald-700">₱{estimatedPricePhp.toLocaleString()}</strong>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => setIsMatrixModalOpen(true)}
+                        className="bg-white hover:bg-stone-100 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Growth Matrix Guide</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-            {!biosecurity.noSwillFeeding && (
-              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs font-semibold">
-                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                <span>
-                  <strong>Strict Prohibition Alert:</strong> Feeding kitchen scraps/swill ("Pasaw") is banned under Hinunangan EO 12-2023. Compliance cannot pass without 100% swill feeding prohibition.
-                </span>
-              </div>
-            )}
-          </div>
+                {/* Biosecurity Scorecard Banner */}
+                {(sec.id === 'sec_biosecurity' || sec.fields.some(f => f.id === 'fld_fence_installed' || f.id === 'fld_footbath_active' || f.id === 'fld_no_swill_ban')) && (
+                  <div className="bg-emerald-950 text-white rounded-2xl p-4 shadow-sm border border-emerald-800">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+                            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                            Biosecurity Standards Compliance Scorecard
+                          </span>
+                          <span className="text-[10px] bg-emerald-800 text-emerald-200 font-bold px-2 py-0.5 rounded-full">
+                            {totalBiosecurityChecked}/{totalBiosecurityStandards} Passed
+                          </span>
+                        </div>
+                        <p className="text-xs text-emerald-200/90 mt-1">
+                          Provincial Ordinance 2021-018 & Municipal EO 12-2023 minimum requirement: &gt;70% compliance.
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl font-black text-emerald-300 font-mono">
+                          {biosecurityPercentage}%
+                        </div>
+                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                          biosecurityPercentage >= 70 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                        }`}>
+                          {biosecurityPercentage >= 70 ? 'Compliant' : 'Needs Upgrade'}
+                        </span>
+                      </div>
+                    </div>
+                    {/* Progress Bar */}
+                    <div className="w-full bg-emerald-900 rounded-full h-2 mt-3 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-500 ${
+                          biosecurityPercentage >= 70 ? 'bg-emerald-400' : 'bg-amber-400'
+                        }`}
+                        style={{ width: `${biosecurityPercentage}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
 
-          <p className="text-xs text-stone-500">
-            Check or uncheck measures below to automatically update the compliance percentage score:
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <label className="flex items-start gap-2.5 p-3.5 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
-              <input
-                type="checkbox"
-                checked={biosecurity.perimeterFence}
-                onChange={e => setBiosecurity({ ...biosecurity, perimeterFence: e.target.checked })}
-                className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-              />
-              <div>
-                <span className="font-bold text-stone-900">Perimeter Fence / Barrier Pen</span>
-                <p className="text-[11px] text-stone-500">Enclosed pen preventing contact with stray animals & wildlife.</p>
-              </div>
-            </label>
-
-            <label className="flex items-start gap-2.5 p-3.5 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
-              <input
-                type="checkbox"
-                checked={biosecurity.footbathInstalled}
-                onChange={e => setBiosecurity({ ...biosecurity, footbathInstalled: e.target.checked })}
-                className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-              />
-              <div>
-                <span className="font-bold text-stone-900">Entrance Footbath with Disinfectant</span>
-                <p className="text-[11px] text-stone-500">Active chemical or lime footbath at pen entrance.</p>
-              </div>
-            </label>
-
-            <label className="flex items-start gap-2.5 p-3.5 rounded-2xl border border-emerald-300 bg-emerald-50/40 hover:bg-emerald-50 cursor-pointer transition">
-              <input
-                type="checkbox"
-                checked={biosecurity.noSwillFeeding}
-                onChange={e => setBiosecurity({ ...biosecurity, noSwillFeeding: e.target.checked })}
-                className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-              />
-              <div>
-                <span className="font-bold text-emerald-950">100% No Swill Feeding ("Bawal ang Pasaw")</span>
-                <p className="text-[11px] text-emerald-900">
-                  Strictly prohibits feeding restaurant scraps/kanin-baboy under Section 3 of EO 12-2023.
-                </p>
-              </div>
-            </label>
-
-            <label className="flex items-start gap-2.5 p-3.5 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
-              <input
-                type="checkbox"
-                checked={biosecurity.disinfectionRoutine}
-                onChange={e => setBiosecurity({ ...biosecurity, disinfectionRoutine: e.target.checked })}
-                className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-              />
-              <div>
-                <span className="font-bold text-stone-900">Scheduled Pen Disinfection</span>
-                <p className="text-[11px] text-stone-500">Routine weekly chemical spraying of walls and floor.</p>
-              </div>
-            </label>
-
-            <label className="flex items-start gap-2.5 p-3.5 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
-              <input
-                type="checkbox"
-                checked={biosecurity.potableWaterSource}
-                onChange={e => setBiosecurity({ ...biosecurity, potableWaterSource: e.target.checked })}
-                className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-              />
-              <div>
-                <span className="font-bold text-stone-900">Clean & Potable Water Source</span>
-                <p className="text-[11px] text-stone-500">Direct clean tap, spring, or deepwell water.</p>
-              </div>
-            </label>
-
-            <label className="flex items-start gap-2.5 p-3.5 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
-              <input
-                type="checkbox"
-                checked={biosecurity.quarantinePenAvailable}
-                onChange={e => setBiosecurity({ ...biosecurity, quarantinePenAvailable: e.target.checked })}
-                className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-              />
-              <div>
-                <span className="font-bold text-stone-900">Isolation / Quarantine Pen</span>
-                <p className="text-[11px] text-stone-500">Dedicated area for sick swine or new acquisitions.</p>
-              </div>
-            </label>
-
-            <label className="flex items-start gap-2.5 p-3.5 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
-              <input
-                type="checkbox"
-                checked={biosecurity.asfVaccinationOrTesting}
-                onChange={e => setBiosecurity({ ...biosecurity, asfVaccinationOrTesting: e.target.checked })}
-                className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-              />
-              <div>
-                <span className="font-bold text-stone-900">DA Veterinary Clearance / ASF Negative</span>
-                <p className="text-[11px] text-stone-500">Inspected by Municipal Agriculture Office or Barangay Focal.</p>
-              </div>
-            </label>
-
-            <label className="flex items-start gap-2.5 p-3.5 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
-              <input
-                type="checkbox"
-                checked={biosecurity.wasteLagoonOrCompost}
-                onChange={e => setBiosecurity({ ...biosecurity, wasteLagoonOrCompost: e.target.checked })}
-                className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-              />
-              <div>
-                <span className="font-bold text-stone-900">Waste Management Lagoon / Bio-compost</span>
-                <p className="text-[11px] text-stone-500">Proper manure disposal compliant with sanitation codes.</p>
-              </div>
-            </label>
-
-            {/* Custom dynamic fields */}
-            {biosecurityFields.map(f => (
-              <label key={f.id} className="flex items-start gap-2.5 p-3.5 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
-                <input
-                  type="checkbox"
-                  checked={!!biosecurity[f.id]}
-                  onChange={e => setBiosecurity({ ...biosecurity, [f.id]: e.target.checked })}
-                  className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-                />
-                <div>
-                  <span className="font-bold text-stone-900">{f.label}</span>
-                  <p className="text-[11px] text-stone-500">Custom checklist configured in system.</p>
+                {/* Section Fields Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                  {visibleFields.map(fld => renderFormField(fld, sec))}
                 </div>
-              </label>
-            ))}
-          </div>
-
-          <div className="pt-2">
-            <label className="block font-bold text-stone-700 text-xs mb-1">
-              Field Inspection Remarks & Observations
-            </label>
-            <textarea
-              rows={2}
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="e.g. Swine is healthy and active. All 3 setback buffers verified with laser/measuring tape. Checked by Barangay Focal Person."
-              className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
-            />
-          </div>
-        </div>
+              </div>
+            );
+          })}
 
         {/* Submit Actions */}
         <div className="flex items-center justify-end gap-3 pt-2">

@@ -19,6 +19,7 @@ import {
   calculatePolygonAreaHectares,
   generateDefaultBoundary,
 } from '../../utils/gisMeasure';
+import { HINUNANGAN_BARANGAY_BOUNDARIES } from '../../data/hinunanganBoundariesGeoJSON';
 
 interface BarangayBoundaryMapProps {
   centerLat: number;
@@ -123,14 +124,15 @@ export const BarangayBoundaryMap: React.FC<BarangayBoundaryMapProps> = ({
     if (basemap === 'satellite') {
       url =
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-      attribution = 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye';
+      attribution = 'Tiles &copy; Esri &mdash; Satellite Imagery';
     } else if (basemap === 'topo') {
-      url = 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
-      attribution = 'Map data: &copy; OpenTopoMap';
+      url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}';
+      attribution = 'Tiles &copy; Esri Topo &mdash; Topography';
     }
 
     const newLayer = L.tileLayer(url, { attribution, maxZoom: 19 }).addTo(mapInstanceRef.current);
     tileLayerRef.current = newLayer;
+    mapInstanceRef.current.invalidateSize();
   }, [basemap]);
 
   // 3. Update Center Pin & Buffer
@@ -305,7 +307,11 @@ export const BarangayBoundaryMap: React.FC<BarangayBoundaryMapProps> = ({
   };
 
   const handleAutoGenerateBoundary = () => {
-    const generated = generateDefaultBoundary(centerLat, centerLng, 0.85, 7);
+    const official = HINUNANGAN_BARANGAY_BOUNDARIES[barangayName];
+    const generated =
+      official && official.length >= 3
+        ? official
+        : generateDefaultBoundary(centerLat, centerLng, 0.85, 7);
     onPolygonChange(generated);
 
     // Zoom and pan to encompass the generated polygon

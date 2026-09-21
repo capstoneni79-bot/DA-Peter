@@ -26,6 +26,7 @@ import { SwineMarketingAlerts } from './components/marketing/SwineMarketingAlert
 import { SwineTakeoffManager } from './components/takeoff/SwineTakeoffManager';
 import { AgentCatalog } from './components/agent/AgentCatalog';
 import { AgentAccountView } from './components/agent/AgentAccountView';
+import { UserAccountView } from './components/account/UserAccountView';
 import { AuthModal } from './components/auth/AuthModal';
 import { ASFOrdinanceModule } from './components/asf/ASFOrdinanceModule';
 import { storageService } from './services/storageService';
@@ -65,6 +66,14 @@ export default function App() {
   // Counters for Header badges
   const [readyTakeoffCount, setReadyTakeoffCount] = useState<number>(0);
   const [activeAlertsCount, setActiveAlertsCount] = useState<number>(0);
+
+  // Google Maps Platform Quota Defense listener
+  const [quotaExceeded, setQuotaExceeded] = useState(false);
+  useEffect(() => {
+    const handler = () => setQuotaExceeded(true);
+    window.addEventListener('gmp-quota-exceeded', handler);
+    return () => window.removeEventListener('gmp-quota-exceeded', handler);
+  }, []);
 
   // Sidebar visibility state
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
@@ -208,6 +217,24 @@ export default function App() {
       {/* Offline Status & Sync Alert */}
       <OfflineBanner onSyncComplete={refreshAllData} />
 
+      {/* Google Maps Platform Quota Exceeded Sticky Notice */}
+      {quotaExceeded && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm">
+          <span>
+            Google Maps Platform quota reached. If you are the app owner, visit{' '}
+            <a
+              href="https://developers.google.com/maps/ai/ai-studio?utm_campaign=gmp_mcp_codeassist_v1_aistudio#quota_exceeded_errors"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-semibold text-amber-950 hover:text-amber-800"
+            >
+              maps developer site
+            </a>{' '}
+            for instructions to update your account.
+          </span>
+        </div>
+      )}
+
       {/* Main Responsive Header */}
       <Header
         currentUser={currentUser}
@@ -231,11 +258,11 @@ export default function App() {
         onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
       />
 
-      {/* Main Layout Container with Desktop Docked Sidebar & Mobile Drawer */}
+      {/* Main Layout Container with Desktop Locked-In Docked Sidebar & Mobile Drawer */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Desktop Docked Sidebar (sits to the left of the dashboard, ZERO OVERLAYS, dashboard remains 100% visible & clickable) */}
-        {isSidebarOpen && currentRole !== 'landing' && (
-          <aside className="hidden lg:block w-[290px] shrink-0 border-r border-blue-950 bg-[#070e20] z-20 transition-all duration-200">
+        {/* Desktop Locked-In Sidebar (Permanently docked, zero jump/flicker, 100% accessible) */}
+        {currentRole !== 'landing' && (
+          <aside className="hidden lg:flex flex-col w-72 shrink-0 border-r border-slate-800/80 bg-[#070e20] z-20 h-full overflow-hidden">
             <Sidebar
               currentUser={currentUser}
               currentRole={currentRole}
@@ -250,21 +277,22 @@ export default function App() {
               unreadCount={unreadCount}
               readyTakeoffCount={readyTakeoffCount}
               onLogout={handleLogout}
-              onClose={() => setIsSidebarOpen(false)}
+              onClose={() => {}}
               onOpenLogin={() => handleOpenLogin('admin')}
             />
           </aside>
         )}
 
-        {/* Mobile Slide-in Drawer (Only on <lg when open, with clean click-outside backdrop) */}
+        {/* Mobile Slide-in Drawer (Only on mobile/tablet <lg when opened via menu toggle) */}
         {isSidebarOpen && currentRole !== 'landing' && (
-          <div className="lg:hidden fixed inset-0 z-50 flex">
+          <div className="lg:hidden fixed inset-0 z-50 flex pointer-events-auto">
             {/* Clickable Backdrop - closes drawer cleanly */}
             <div
-              className="fixed inset-0 bg-black/50 transition-opacity"
+              className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs transition-opacity cursor-pointer"
               onClick={() => setIsSidebarOpen(false)}
+              aria-label="Close navigation menu"
             />
-            <div className="relative w-[290px] max-w-[85vw] h-full bg-[#070e20] shadow-2xl z-10">
+            <div className="relative w-72 max-w-[85vw] h-full bg-[#070e20] shadow-2xl z-10 flex flex-col overflow-hidden animate-in slide-in-from-left duration-200">
               <Sidebar
                 currentUser={currentUser}
                 currentRole={currentRole}
@@ -283,13 +311,13 @@ export default function App() {
                 unreadCount={unreadCount}
                 readyTakeoffCount={readyTakeoffCount}
                 onLogout={() => {
-                  setIsSidebarOpen(false);
                   handleLogout();
+                  setIsSidebarOpen(false);
                 }}
                 onClose={() => setIsSidebarOpen(false)}
                 onOpenLogin={() => {
-                  setIsSidebarOpen(false);
                   handleOpenLogin('admin');
+                  setIsSidebarOpen(false);
                 }}
               />
             </div>
@@ -406,6 +434,7 @@ export default function App() {
                   }
                   barangays={barangays}
                   selectedBarangay={currentRole === 'focal' ? currentUser?.assignedBarangay : undefined}
+                  onSelectSwine={handleEditSwine}
                 />
               </div>
             )}
@@ -533,6 +562,20 @@ export default function App() {
                   moduleName="Sidebar Color Configuration"
                 />
               )
+            )}
+
+            {/* My Account (Focal Person & Admin) */}
+            {activeTab === 'account' && (
+              <UserAccountView
+                currentUser={currentUser}
+                onLogout={handleLogout}
+                onUpdateUser={(updated) => {
+                  setCurrentUser(updated);
+                  refreshAllData();
+                }}
+                swineList={swineList}
+                barangays={barangays}
+              />
             )}
 
             {/* Registry Form Customization (ADMIN ONLY) */}

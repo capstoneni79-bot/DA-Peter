@@ -78,8 +78,8 @@ export const RegistryFormCustomizer: React.FC<RegistryFormCustomizerProps> = ({
   onRefresh,
   onNavigateTab,
 }) => {
-  // Schema State
-  const [schema, setSchema] = useState<RegistryFormSchema>(() => storageService.getRegistryFormDraft());
+  // Schema State - initialize from the active shared schema configuration
+  const [schema, setSchema] = useState<RegistryFormSchema>(() => storageService.getRegistryFormSchema());
   const [activeSectionId, setActiveSectionId] = useState<string>(() => schema.sections[0]?.id || 'sec_farm');
 
   // Preview Mode
@@ -118,11 +118,34 @@ export const RegistryFormCustomizer: React.FC<RegistryFormCustomizerProps> = ({
     setPreviewTab(activeSectionId);
   }, [activeSectionId]);
 
+  // Keep customizer in sync if external schema changes occur
+  useEffect(() => {
+    const handleSchemaChange = (e: Event) => {
+      const customEvent = e as CustomEvent<RegistryFormSchema>;
+      if (customEvent.detail) {
+        setSchema(customEvent.detail);
+      }
+    };
+    window.addEventListener('da_registry_schema_change', handleSchemaChange);
+    return () => window.removeEventListener('da_registry_schema_change', handleSchemaChange);
+  }, []);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage(null);
     }, 4500);
+  };
+
+  // Synchronize any updates immediately with the actual Swine Registry Form configuration
+  const updateSchemaAndSync = (newSchema: RegistryFormSchema, message?: string) => {
+    setSchema(newSchema);
+    storageService.saveRegistryFormSchema(newSchema);
+    storageService.saveRegistryFormDraft(newSchema);
+    if (message) {
+      showToast(message);
+    }
+    if (onRefresh) onRefresh();
   };
 
   const activeSection = schema.sections.find(s => s.id === activeSectionId) || schema.sections[0];
@@ -183,35 +206,42 @@ export const RegistryFormCustomizer: React.FC<RegistryFormCustomizerProps> = ({
       options: needsOptions ? (fieldOptions.length > 0 ? fieldOptions : ['Option A', 'Option B']) : undefined,
     };
 
-    setSchema(prev => {
-      const newSections = prev.sections.map(sec => {
-        if (sec.id !== editingField.sectionId) return sec;
-        if (editingField.isNew) {
-          return { ...sec, fields: [...sec.fields, updatedField] };
-        } else {
-          return {
-            ...sec,
-            fields: sec.fields.map(f => (f.id === updatedField.id ? updatedField : f)),
-          };
-        }
-      });
-      return { ...prev, sections: newSections };
+    const newSections = schema.sections.map(sec => {
+      if (sec.id !== editingField.sectionId) return sec;
+      if (editingField.isNew) {
+        return { ...sec, fields: [...sec.fields, updatedField] };
+      } else {
+        return {
+          ...sec,
+          fields: sec.fields.map(f => (f.id === updatedField.id ? updatedField : f)),
+        };
+      }
     });
 
+    const updatedSchema: RegistryFormSchema = {
+      ...schema,
+      sections: newSections,
+      updatedAt: new Date().toISOString(),
+    };
+
+    updateSchemaAndSync(
+      updatedSchema,
+      `✓ Field "${updatedField.label}" saved and synced with Swine Registry Form`
+    );
     setEditingField(null);
-    showToast(`✓ Field "${updatedField.label}" saved successfully`);
   };
 
   // Delete Field
   const handleDeleteField = (sectionId: string, fieldId: string, fieldLabel: string) => {
     if (!window.confirm(`Are you sure you want to remove the field "${fieldLabel}"?`)) return;
-    setSchema(prev => ({
-      ...prev,
-      sections: prev.sections.map(sec =>
+    const updatedSchema: RegistryFormSchema = {
+      ...schema,
+      sections: schema.sections.map(sec =>
         sec.id === sectionId ? { ...sec, fields: sec.fields.filter(f => f.id !== fieldId) } : sec
       ),
-    }));
-    showToast(`Removed field "${fieldLabel}"`);
+      updatedAt: new Date().toISOString(),
+    };
+    updateSchemaAndSync(updatedSchema, `Removed field "${fieldLabel}"`);
   };
 
   // Duplicate Field
@@ -223,24 +253,27 @@ export const RegistryFormCustomizer: React.FC<RegistryFormCustomizerProps> = ({
       options: field.options ? [...field.options] : undefined,
     };
 
-    setSchema(prev => ({
-      ...prev,
-      sections: prev.sections.map(sec => {
-        if (sec.id !== sectionId) return sec;
-        const index = sec.fields.findIndex(f => f.id === field.id);
-        const newFields = [...sec.fields];
-        newFields.splice(index + 1, 0, duplicated);
-        return { ...sec, fields: newFields };
-      }),
-    }));
-    showToast(`Duplicated "${field.label}"`);
+    const newSections = schema.sections.map(sec => {
+      if (sec.id !== sectionId) return sec;
+      const index = sec.fields.findIndex(f => f.id === field.id);
+      const newFields = [...sec.fields];
+      newFields.splice(index + 1, 0, duplicated);
+      return { ...sec, fields: newFields };
+    });
+
+    const updatedSchema: RegistryFormSchema = {
+      ...schema,
+      sections: newSections,
+      updatedAt: new Date().toISOString(),
+    };
+    updateSchemaAndSync(updatedSchema, `Duplicated "${field.label}"`);
   };
 
   // Toggle Visibility
   const handleToggleVisible = (sectionId: string, fieldId: string) => {
-    setSchema(prev => ({
-      ...prev,
-      sections: prev.sections.map(sec =>
+    const updatedSchema: RegistryFormSchema = {
+      ...schema,
+      sections: schema.sections.map(sec =>
         sec.id === sectionId
           ? {
               ...sec,
@@ -248,14 +281,16 @@ export const RegistryFormCustomizer: React.FC<RegistryFormCustomizerProps> = ({
             }
           : sec
       ),
-    }));
+      updatedAt: new Date().toISOString(),
+    };
+    updateSchemaAndSync(updatedSchema, 'Field visibility updated and synced');
   };
 
   // Toggle Required
   const handleToggleRequired = (sectionId: string, fieldId: string) => {
-    setSchema(prev => ({
-      ...prev,
-      sections: prev.sections.map(sec =>
+    const updatedSchema: RegistryFormSchema = {
+      ...schema,
+      sections: schema.sections.map(sec =>
         sec.id === sectionId
           ? {
               ...sec,
@@ -263,23 +298,29 @@ export const RegistryFormCustomizer: React.FC<RegistryFormCustomizerProps> = ({
             }
           : sec
       ),
-    }));
+      updatedAt: new Date().toISOString(),
+    };
+    updateSchemaAndSync(updatedSchema, 'Field requirement updated and synced');
   };
 
   // Reorder Fields (Move Up / Down)
   const handleMoveField = (sectionId: string, index: number, direction: 'up' | 'down') => {
-    setSchema(prev => ({
-      ...prev,
-      sections: prev.sections.map(sec => {
-        if (sec.id !== sectionId) return sec;
-        const newFields = [...sec.fields];
-        const targetIndex = direction === 'up' ? index - 1 : index + 1;
-        if (targetIndex < 0 || targetIndex >= newFields.length) return sec;
-        const [moved] = newFields.splice(index, 1);
-        newFields.splice(targetIndex, 0, moved);
-        return { ...sec, fields: newFields };
-      }),
-    }));
+    const newSections = schema.sections.map(sec => {
+      if (sec.id !== sectionId) return sec;
+      const newFields = [...sec.fields];
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= newFields.length) return sec;
+      const [moved] = newFields.splice(index, 1);
+      newFields.splice(targetIndex, 0, moved);
+      return { ...sec, fields: newFields };
+    });
+
+    const updatedSchema: RegistryFormSchema = {
+      ...schema,
+      sections: newSections,
+      updatedAt: new Date().toISOString(),
+    };
+    updateSchemaAndSync(updatedSchema);
   };
 
   // Drag and Drop reordering handlers
@@ -290,16 +331,20 @@ export const RegistryFormCustomizer: React.FC<RegistryFormCustomizerProps> = ({
   const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
     if (draggedFieldIndex === null || draggedFieldIndex === index) return;
-    setSchema(prev => ({
-      ...prev,
-      sections: prev.sections.map(sec => {
-        if (sec.id !== activeSectionId) return sec;
-        const newFields = [...sec.fields];
-        const [dragged] = newFields.splice(draggedFieldIndex, 1);
-        newFields.splice(index, 0, dragged);
-        return { ...sec, fields: newFields };
-      }),
-    }));
+    const newSections = schema.sections.map(sec => {
+      if (sec.id !== activeSectionId) return sec;
+      const newFields = [...sec.fields];
+      const [dragged] = newFields.splice(draggedFieldIndex, 1);
+      newFields.splice(index, 0, dragged);
+      return { ...sec, fields: newFields };
+    });
+
+    const updatedSchema: RegistryFormSchema = {
+      ...schema,
+      sections: newSections,
+      updatedAt: new Date().toISOString(),
+    };
+    updateSchemaAndSync(updatedSchema);
     setDraggedFieldIndex(index);
   };
 
@@ -329,15 +374,19 @@ export const RegistryFormCustomizer: React.FC<RegistryFormCustomizerProps> = ({
       isCustom: true,
       fields: [],
     };
-    setSchema(prev => ({
-      ...prev,
-      sections: [...prev.sections, newSection],
-    }));
+    const updatedSchema: RegistryFormSchema = {
+      ...schema,
+      sections: [...schema.sections, newSection],
+      updatedAt: new Date().toISOString(),
+    };
     setActiveSectionId(newSection.id);
     setIsAddingSection(false);
     setNewSectionTitle('');
     setNewSectionDescription('');
-    showToast(`✓ Section "${newSection.title}" created`);
+    updateSchemaAndSync(
+      updatedSchema,
+      `✓ Section "${newSection.title}" created and synced with Registry Form`
+    );
   };
 
   // Delete Section
@@ -347,32 +396,39 @@ export const RegistryFormCustomizer: React.FC<RegistryFormCustomizerProps> = ({
       return;
     }
     if (!window.confirm(`Are you sure you want to delete section "${title}" and all its fields?`)) return;
-    setSchema(prev => {
-      const filtered = prev.sections.filter(s => s.id !== sectionId);
-      if (activeSectionId === sectionId) {
-        setActiveSectionId(filtered[0]?.id || '');
-      }
-      return { ...prev, sections: filtered };
-    });
-    showToast(`Section "${title}" removed`);
+    const filtered = schema.sections.filter(s => s.id !== sectionId);
+    if (activeSectionId === sectionId) {
+      setActiveSectionId(filtered[0]?.id || '');
+    }
+    const updatedSchema: RegistryFormSchema = {
+      ...schema,
+      sections: filtered,
+      updatedAt: new Date().toISOString(),
+    };
+    updateSchemaAndSync(updatedSchema, `Section "${title}" removed`);
   };
 
   // Move Section Up/Down
   const handleMoveSection = (index: number, direction: 'up' | 'down') => {
-    setSchema(prev => {
-      const newSections = [...prev.sections];
-      const targetIndex = direction === 'up' ? index - 1 : index + 1;
-      if (targetIndex < 0 || targetIndex >= newSections.length) return prev;
-      const [moved] = newSections.splice(index, 1);
-      newSections.splice(targetIndex, 0, moved);
-      return { ...prev, sections: newSections };
-    });
+    const newSections = [...schema.sections];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newSections.length) return;
+    const [moved] = newSections.splice(index, 1);
+    newSections.splice(targetIndex, 0, moved);
+    const updatedSchema: RegistryFormSchema = {
+      ...schema,
+      sections: newSections,
+      updatedAt: new Date().toISOString(),
+    };
+    updateSchemaAndSync(updatedSchema);
   };
 
   // Save Draft
   const handleSaveDraft = () => {
     storageService.saveRegistryFormDraft(schema);
-    showToast('✓ Form customization draft saved to local workspace');
+    storageService.saveRegistryFormSchema(schema);
+    showToast('✓ Form customization saved and synced with Swine Registry Form');
+    if (onRefresh) onRefresh();
   };
 
   // Reset to Default Form
@@ -389,8 +445,9 @@ export const RegistryFormCustomizer: React.FC<RegistryFormCustomizerProps> = ({
   // Confirm and Publish
   const handleConfirmPublish = () => {
     storageService.saveRegistryFormSchema(schema);
+    storageService.saveRegistryFormDraft(schema);
     setIsPublishModalOpen(false);
-    showToast('✓ Registry form customization published successfully.');
+    showToast('✓ Registry form customization published and synced successfully.');
     if (onRefresh) onRefresh();
   };
 

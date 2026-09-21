@@ -1,9 +1,10 @@
-export type AppLanguage = 'en' | 'ceb';
+export type AppLanguage = 'en' | 'ceb' | 'fil';
 
 export interface TranslationDictionary {
   // Navigation & Menu
   nav_dashboard: string;
   nav_add_swine: string;
+  nav_farm_reg: string;
   nav_gis_map: string;
   nav_records: string;
   nav_reports: string;
@@ -107,7 +108,8 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
   en: {
     // Navigation & Menu
     nav_dashboard: 'Dashboard',
-    nav_add_swine: 'Add Swine Farm Registration',
+    nav_add_swine: 'Register Swine',
+    nav_farm_reg: 'Swine Farm Registration',
     nav_gis_map: 'GIS Swine Map & Geo-reference',
     nav_records: 'Swine Records',
     nav_reports: 'Print Official Reports',
@@ -209,7 +211,8 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
   ceb: {
     // Navigation & Menu (Cebuano / Bisaya)
     nav_dashboard: 'Punoang Panid (Dashboard)',
-    nav_add_swine: 'Idugang ang Rehistro sa Baboyan',
+    nav_add_swine: 'Rehistro sa Baboy',
+    nav_farm_reg: 'Rehistro sa Baboyan (Farm Reg)',
     nav_gis_map: 'Mapa sa GIS ug Lokasyon sa Baboyan',
     nav_records: 'Talaan sa mga Baboy',
     nav_reports: 'I-print ang Opisyal nga Report',
@@ -308,6 +311,109 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     status_quarantined: 'Gibulag (Quarantine)',
     status_sold: 'Nabaligya Na',
   },
+  fil: {
+    // Navigation & Menu (Filipino / Tagalog)
+    nav_dashboard: 'Pangunahing Dashboard',
+    nav_add_swine: 'Magparehistro ng Baboy',
+    nav_farm_reg: 'Rehistro ng Babuyan (Farm Reg)',
+    nav_gis_map: 'Mapa ng GIS at Lokasyon ng Babuyan',
+    nav_records: 'Talaan ng mga Baboy',
+    nav_reports: 'I-print ang Opisyal na Ulat',
+    nav_takeoff: 'Handa nang Idispatso (Take-Off)',
+    nav_ready_to_sell: 'Mga Baboy na Ibinebenta',
+    nav_biosecurity: 'Biosecurity sa Barangay',
+    nav_asf_decrees: 'Batas at Ordinansa sa ASF',
+    nav_messages: 'Mga Mensahe',
+    nav_barangays: 'Pamamahala ng Barangay',
+    nav_accounts: 'Mga Account ng Gumagamit',
+    nav_landing_settings: 'Mga Setting ng Pampublikong Portal',
+    nav_form_customizer: 'Pagpapasadyang Form ng Rehistro',
+    nav_sidebar_config: 'Pagsasaayos ng Sidebar at Logo',
+    nav_public_portal: 'Tingnan ang Pampublikong Portal',
+    nav_sign_out: 'Mag-sign Out',
+    nav_system_admin: 'Pamamahala ng Sistema (Admin)',
+    nav_trader_portal: 'Portal ng Mangangalakal (Trader)',
+    nav_my_account: 'Aking Account',
+    nav_close_sidebar: 'Isara ang Navigation Menu',
+
+    // Header & Brand
+    header_da_title: 'DA HINUNANGAN',
+    header_da_sub: 'REHISTRO AT BIOSECURITY NG MGA BABUYAN SA BAYAN',
+    header_rfo: 'DA - RFO VIII',
+    header_mao: 'Tanggapan ng Pagsasaka ng Bayan',
+    header_location: 'Hinunangan, Southern Leyte',
+    header_sync_active: 'Aktibo ang Pag-sync Online',
+    header_sim_offline: 'Kunwaring Walang Koneksyon',
+    header_backup: 'Kopya ng Datos (Backup)',
+    header_menu: 'Menu',
+    header_view_portal: 'Tingnan ang Pampublikong Portal',
+    header_sign_out: 'Mag-sign Out',
+
+    // Roles
+    role_admin: 'Tagapamahala (Admin)',
+    role_focal: 'Focal Person ng Barangay',
+    role_agent: 'Mangangalakal ng Hayop (Trader)',
+    role_public: 'Pampublikong Portal',
+    role_admin_full: 'Agrikulturista ng Bayan / Pinuno ng MAO',
+    role_focal_full: 'Focal Person ng Bayan / Field Office',
+    role_agent_full: 'Lisensyadong Mangangalakal ng Baboy / Ahente',
+
+    // Common UI Actions & Words
+    common_language: 'Wika',
+    common_online: 'Konektado (Online)',
+    common_offline: 'Walang Koneksyon (Offline)',
+    common_synced: 'Na-sync Na',
+    common_save: 'I-save (Itala)',
+    common_saved: 'Matagumpay na naitala!',
+    common_cancel: 'Kanselahin',
+    common_delete: 'Burahin',
+    common_edit: 'I-edit',
+    common_search: 'Maghanap',
+    common_filter: 'Salain',
+    common_export: 'I-export',
+    common_print: 'I-print',
+    common_close: 'Isara',
+    common_back: 'Bumalik',
+    common_actions: 'Mga Aksyon',
+    common_status: 'Katayuan',
+    common_all: 'Lahat',
+    common_total: 'Kabuuan',
+    common_refresh: 'I-refresh',
+    common_loading: 'Naglo-load...',
+    common_confirm: 'Kumpirmahin',
+    common_yes: 'Oo',
+    common_no: 'Hindi',
+    common_no_records: 'Walang nahanap na tala',
+    common_download: 'I-download',
+
+    // Dashboard & Metrics
+    dash_title: 'Operasyon sa Rehistro ng Babuyan at Biosecurity',
+    dash_subtitle: 'Real-time na pagsubaybay sa buong bayan upang maiwasan ang African Swine Fever (ASF)',
+    dash_total_farms: 'Kabuuang Bilang ng Babuyan',
+    dash_total_heads: 'Kabuuang Bilang ng Ulo ng Baboy',
+    dash_ready_takeoff: 'Handa nang Idispatso (Take-Off)',
+    dash_asf_free_rate: 'Bahaging Ligtas sa ASF',
+    dash_biosecurity_rate: 'Pagsunod sa Biosecurity',
+    dash_recent_registrations: 'Kamakailang Rehistro ng Babuyan',
+    dash_distribution_title: 'Populasyon ng Baboy sa bawat Barangay',
+    dash_quick_actions: 'Mabilisang Aksyon',
+    dash_export_csv: 'I-download ang Talaan (CSV)',
+    dash_filter_barangay: 'Salain ayon sa Barangay',
+
+    // Swine Classifications & Terminology
+    swine_sow: 'Inahing Baboy (Sow)',
+    swine_boar: 'Barako (Boar)',
+    swine_piglet: 'Biik (Piglet)',
+    swine_fattener: 'Pang-katay / Grower (Fattener)',
+    swine_native: 'Katutubong Baboy (Native)',
+    swine_commercial: 'Komersyal',
+    swine_backyard: 'Likod-bahay (Backyard)',
+    swine_semi_commercial: 'Semi-Komersyal',
+    status_healthy: 'Malusog',
+    status_suspected: 'Pinaghihinalaan',
+    status_quarantined: 'Naka-quarantine',
+    status_sold: 'Naibenta Na',
+  },
 };
 
 const LANGUAGE_STORAGE_KEY = 'app_language';
@@ -323,7 +429,7 @@ class LanguageService {
   private init() {
     try {
       const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-      if (stored === 'en' || stored === 'ceb') {
+      if (stored === 'en' || stored === 'ceb' || stored === 'fil') {
         this.currentLanguage = stored;
       } else {
         this.currentLanguage = 'en';
@@ -338,7 +444,7 @@ class LanguageService {
   }
 
   public setLanguage(lang: AppLanguage): void {
-    if (lang !== 'en' && lang !== 'ceb') return;
+    if (lang !== 'en' && lang !== 'ceb' && lang !== 'fil') return;
     this.currentLanguage = lang;
     try {
       localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);

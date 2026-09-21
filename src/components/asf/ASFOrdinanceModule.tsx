@@ -329,15 +329,6 @@ export const ASFOrdinanceModule: React.FC<ASFOrdinanceModuleProps> = ({
       <div className="bg-gradient-to-r from-emerald-950 via-teal-950 to-stone-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-emerald-800/40 relative overflow-hidden">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold">
-              <Shield className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Official Regulatory Framework</span>
-              {isAdmin && (
-                <span className="ml-1 px-1.5 py-0.5 rounded bg-amber-400 text-amber-950 text-[10px] font-black uppercase">
-                  Admin Editor Mode
-                </span>
-              )}
-            </div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
               African Swine Fever (ASF) Legal & Biosecurity Decrees
             </h1>

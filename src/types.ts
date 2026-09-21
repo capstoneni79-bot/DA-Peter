@@ -93,6 +93,11 @@ export interface SwineRecord {
   isArchived: boolean;
   biosecurity: BiosecurityChecklist;
   notes?: string;
+  farmName?: string;
+  penCapacity?: number;
+  email?: string;
+  residentialAddress?: string;
+  customFields?: Record<string, any>;
   registeredBy: string;
   registeredAt: string;
   updatedAt: string;
@@ -142,7 +147,7 @@ export interface CertificateTypeDefinition {
   id: string;
   name: string;
   title: string;
-  formatType: 'biosecurity' | 'health' | 'origin' | 'slaughter' | 'registration' | 'custom';
+  formatType: 'barangay_cert' | 'biosecurity' | 'health' | 'origin' | 'slaughter' | 'registration' | 'custom';
   letterBody: string;
   termsAndConditions?: string[];
   signatories?: CertificateSignatory[];
@@ -170,16 +175,27 @@ export interface CertificateConfig {
 
 export interface IssuedCertificate {
   certificateNo: string;
+  certificateType?: string;
+  formatType?: 'barangay_cert' | 'biosecurity' | 'health' | 'origin' | 'slaughter' | 'registration' | 'custom';
   swineId: string;
   earTagNo: string;
   farmerName: string;
+  farmerBarangay?: string;
   buyerName?: string;
   destinationBarangay?: string;
   destinationMunicipality?: string;
+  numberOfHeads?: number;
+  swineDescription?: string;
+  orNumber?: string;
+  amountPaid?: number;
+  datePaid?: string;
   issueDate: string;
   validUntil: string;
+  issuingBarangay?: string;
+  punongBarangay?: string;
+  bboName?: string;
   authorizedBy: string;
-  status: 'active' | 'expired' | 'revoked';
+  status: 'active' | 'expired' | 'revoked' | 'completed';
   qrVerificationCode: string;
 }
 
@@ -302,6 +318,7 @@ export interface RegistryFormSection {
   title: string;
   description?: string;
   isCustom?: boolean;
+  visible?: boolean;
   fields: RegistryFormField[];
 }
 
