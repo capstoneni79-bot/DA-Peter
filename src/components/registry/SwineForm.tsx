@@ -230,7 +230,8 @@ export const SwineForm: React.FC<SwineFormProps> = ({
   const defaultBgObj = barangays.find(b => b.name === defaultBarangay) || barangays[0];
   const [latitude, setLatitude] = useState<number>(initialData?.latitude || defaultBgObj?.latitude || 10.3969);
   const [longitude, setLongitude] = useState<number>(initialData?.longitude || defaultBgObj?.longitude || 125.1999);
-  const [showMapPicker, setShowMapPicker] = useState(false);
+  const [showMapPicker, setShowMapPicker] = useState(true);
+  const [allExistingSwine, setAllExistingSwine] = useState<SwineRecord[]>(() => storageService.getSwineRecords());
 
   // Setback Buffers
   const [distanceToWaterSource, setDistanceToWaterSource] = useState<number>(
@@ -1594,27 +1595,39 @@ export const SwineForm: React.FC<SwineFormProps> = ({
             </div>
           </div>
 
-          {/* Map Picker Collapsible */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowMapPicker(!showMapPicker)}
-              className="text-xs text-emerald-800 font-bold flex items-center gap-1 hover:underline cursor-pointer"
-            >
-              {showMapPicker ? '▼ Hide Interactive Map Picker' : '▶ Show Interactive Map Picker (Click map to adjust pin)'}
-            </button>
+          {/* Live GIS Map View & Farm Pin Locator */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-stone-900 flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 text-emerald-600" />
+                  Live Map View & Pen Geolocation (Click map to position pen)
+                </span>
+                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                  Live GIS View
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMapPicker(!showMapPicker)}
+                className="text-xs text-stone-500 hover:text-stone-800 font-semibold cursor-pointer"
+              >
+                {showMapPicker ? 'Collapse Map' : 'Expand Map View'}
+              </button>
+            </div>
 
             {showMapPicker && (
-              <div className="mt-2 rounded-2xl overflow-hidden border border-stone-200 shadow-xs">
+              <div className="mt-1 rounded-2xl overflow-hidden border border-stone-300 shadow-sm relative">
                 <GisMap
-                  swineList={[]}
+                  swineList={allExistingSwine}
                   barangays={barangays}
                   selectedBarangay={barangay}
                   isLocationPicker={true}
                   initialCenter={[latitude, longitude]}
                   onPickLocation={(lat, lng, closestBg) => {
                     if (!isPointInsideHinunangan(lat, lng)) {
-                      alert('Location outside Hinunangan');
+                      alert('Selected location is outside Hinunangan municipal territory.');
                       return;
                     }
                     setLatitude(Number(lat.toFixed(6)));

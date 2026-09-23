@@ -381,6 +381,36 @@ export const storageService = {
     }
   },
 
+  deleteAllSwineRecords(): void {
+    const allRecords = this.getSwineRecords();
+    const ids = allRecords.map(r => r.id);
+    this.saveSwineRecords([]);
+
+    if (this.isEffectiveOffline()) {
+      ids.forEach(id => {
+        this.enqueueOfflineAction({
+          id: 'queue-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+          action: 'delete',
+          entity: 'swine',
+          data: { id },
+          timestamp: new Date().toISOString(),
+        });
+      });
+    } else {
+      const user = this.getCurrentUser();
+      fetch('/api/swine/bulk-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || 'admin',
+          'x-user-name': user?.name || 'Administrator',
+          'x-user-id': user?.id || 'admin',
+        },
+        body: JSON.stringify({ ids }),
+      }).catch(err => console.warn('Cloud SQL bulk delete sync notice:', err));
+    }
+  },
+
   toggleSellStatus(id: string, readyToSell: boolean): void {
     const records = this.getSwineRecords();
     const item = records.find(r => r.id === id);

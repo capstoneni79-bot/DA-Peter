@@ -1,5 +1,5 @@
 import React from 'react';
-import { Globe, Image as ImageIcon, Mail, Phone, MapPin, Compass } from 'lucide-react';
+import { Globe, Image as ImageIcon, Mail, Phone, MapPin, Compass, Upload } from 'lucide-react';
 import { LandingCmsConfig } from '../../../../types/landingCms';
 
 interface GeneralTabProps {
@@ -83,39 +83,103 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ config, onChange, onOpen
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <label className="block font-semibold text-stone-700">Browser Tab Favicon URL</label>
+            <div className="flex items-center justify-between">
+              <label className="block font-semibold text-stone-700">Browser Tab Favicon</label>
+              <label className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 hover:text-emerald-950 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg cursor-pointer transition">
+                <Upload className="w-3 h-3" />
+                <span>Import Photo</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      if (typeof reader.result === 'string') {
+                        onChange({ faviconUrl: reader.result });
+                      }
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </label>
+            </div>
             <div className="flex items-center gap-3">
               <img
                 src={config.faviconUrl || '/icon.svg'}
                 alt="Favicon"
                 className="w-10 h-10 p-1 rounded-xl border border-stone-200 object-contain bg-stone-50"
               />
-              <div className="flex-1">
+              <div className="flex-1 space-y-1">
                 <input
                   type="text"
+                  placeholder="Paste image URL or click Import Photo"
                   value={config.faviconUrl}
                   onChange={e => onChange({ faviconUrl: e.target.value })}
                   className="w-full px-3 py-1.5 rounded-lg border border-stone-300 text-[11px] font-mono"
                 />
+                {config.faviconUrl && config.faviconUrl !== '/icon.svg' && (
+                  <button
+                    type="button"
+                    onClick={() => onChange({ faviconUrl: '/icon.svg' })}
+                    className="text-[10px] text-stone-400 hover:text-red-600 font-medium transition cursor-pointer"
+                  >
+                    Reset default icon
+                  </button>
+                )}
               </div>
             </div>
           </div>
 
           <div className="space-y-2">
-            <label className="block font-semibold text-stone-700">System Logo URL</label>
+            <div className="flex items-center justify-between">
+              <label className="block font-semibold text-stone-700">System Logo</label>
+              <label className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 hover:text-emerald-950 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg cursor-pointer transition">
+                <Upload className="w-3 h-3" />
+                <span>Import Photo</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      if (typeof reader.result === 'string') {
+                        onChange({ systemLogoUrl: reader.result });
+                      }
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </label>
+            </div>
             <div className="flex items-center gap-3">
               <img
                 src={config.systemLogoUrl || '/icon.svg'}
                 alt="System Logo"
                 className="w-10 h-10 p-1 rounded-xl border border-stone-200 object-contain bg-stone-50"
               />
-              <div className="flex-1">
+              <div className="flex-1 space-y-1">
                 <input
                   type="text"
+                  placeholder="Paste image URL or click Import Photo"
                   value={config.systemLogoUrl}
                   onChange={e => onChange({ systemLogoUrl: e.target.value })}
                   className="w-full px-3 py-1.5 rounded-lg border border-stone-300 text-[11px] font-mono"
                 />
+                {config.systemLogoUrl && config.systemLogoUrl !== '/icon.svg' && (
+                  <button
+                    type="button"
+                    onClick={() => onChange({ systemLogoUrl: '/icon.svg' })}
+                    className="text-[10px] text-stone-400 hover:text-red-600 font-medium transition cursor-pointer"
+                  >
+                    Reset default logo
+                  </button>
+                )}
               </div>
             </div>
           </div>

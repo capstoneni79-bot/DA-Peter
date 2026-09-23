@@ -596,9 +596,21 @@ export const FooterTab: React.FC<FooterTabProps> = ({ config, onChange, onOpenMe
           <h3 className="font-bold text-stone-900 text-sm">Footer Branding & Copyright</h3>
         </div>
 
-        <div className="space-y-3">
-          <div>
-            <label className="block font-semibold text-stone-700 mb-1">Footer Narrative Summary</label>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block font-semibold text-stone-700">Footer Narrative Summary</label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-stone-500">Font Color:</span>
+                <input
+                  type="color"
+                  value={config.footerTextColor || '#a8a29e'}
+                  onChange={e => onChange({ footerTextColor: e.target.value })}
+                  className="w-6 h-6 rounded-md border border-stone-300 cursor-pointer p-0.5"
+                  title="Footer Text Color"
+                />
+              </div>
+            </div>
             <textarea
               rows={3}
               value={config.footerDescription}
@@ -607,8 +619,20 @@ export const FooterTab: React.FC<FooterTabProps> = ({ config, onChange, onOpenMe
             />
           </div>
 
-          <div>
-            <label className="block font-semibold text-stone-700 mb-1">Copyright Line</label>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block font-semibold text-stone-700">Copyright Line & Headings Color</label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-stone-500">Heading Color:</span>
+                <input
+                  type="color"
+                  value={config.footerHeadingColor || '#ffffff'}
+                  onChange={e => onChange({ footerHeadingColor: e.target.value })}
+                  className="w-6 h-6 rounded-md border border-stone-300 cursor-pointer p-0.5"
+                  title="Footer Headings Color"
+                />
+              </div>
+            </div>
             <input
               type="text"
               value={config.footerCopyright}

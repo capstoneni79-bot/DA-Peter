@@ -357,17 +357,26 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
               <h1
                 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight drop-shadow-md"
-                style={{ fontFamily: theme.headingFont || 'system-ui' }}
+                style={{
+                  fontFamily: theme.headingFont || 'system-ui',
+                  color: cmsConfig.heroTitleColor || '#ffffff',
+                }}
               >
                 {cmsConfig.heroTitle}
               </h1>
 
-              <p className="text-sm sm:text-base text-emerald-100/95 leading-relaxed max-w-2xl font-normal drop-shadow-xs">
+              <p
+                className="text-sm sm:text-base leading-relaxed max-w-2xl font-normal drop-shadow-xs"
+                style={{ color: cmsConfig.heroSubtitleColor || '#ecfdf5' }}
+              >
                 {cmsConfig.heroSubtitle}
               </p>
 
               {cmsConfig.heroDescription && (
-                <p className="text-xs sm:text-sm text-emerald-100/80 leading-relaxed max-w-xl font-normal">
+                <p
+                  className="text-xs sm:text-sm leading-relaxed max-w-xl font-normal"
+                  style={{ color: cmsConfig.heroDescriptionColor || '#d1fae5' }}
+                >
                   {cmsConfig.heroDescription}
                 </p>
               )}

@@ -205,8 +205,20 @@ export const FeaturesTab: React.FC<FeaturesTabProps> = ({ config, onChange }) =>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block font-semibold text-stone-700 mb-1">Main Section Title</label>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block font-semibold text-stone-700">Main Section Title</label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-stone-500">Font Color:</span>
+                <input
+                  type="color"
+                  value={config.featuresTitleColor || '#064e3b'}
+                  onChange={e => onChange({ featuresTitleColor: e.target.value })}
+                  className="w-6 h-6 rounded-md border border-stone-300 cursor-pointer p-0.5"
+                  title="Title Font Color"
+                />
+              </div>
+            </div>
             <input
               type="text"
               value={config.featuresTitle}
@@ -214,8 +226,20 @@ export const FeaturesTab: React.FC<FeaturesTabProps> = ({ config, onChange }) =>
               className="w-full px-3 py-2 rounded-xl border border-stone-300 font-bold text-stone-900 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
             />
           </div>
-          <div>
-            <label className="block font-semibold text-stone-700 mb-1">Main Section Subtitle</label>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block font-semibold text-stone-700">Main Section Subtitle</label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-stone-500">Font Color:</span>
+                <input
+                  type="color"
+                  value={config.featuresSubtitleColor || '#78716c'}
+                  onChange={e => onChange({ featuresSubtitleColor: e.target.value })}
+                  className="w-6 h-6 rounded-md border border-stone-300 cursor-pointer p-0.5"
+                  title="Subtitle Font Color"
+                />
+              </div>
+            </div>
             <input
               type="text"
               value={config.featuresSubtitle}

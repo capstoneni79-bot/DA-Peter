@@ -87,6 +87,8 @@ export interface AboutCardItem {
   description: string;
   icon: string;
   imageUrl?: string;
+  titleColor?: string;
+  descriptionColor?: string;
   visible: boolean;
   order: number;
 }
@@ -99,6 +101,10 @@ export interface FeatureCardItem {
   imageUrl?: string;
   buttonText?: string;
   buttonLink?: string;
+  titleColor?: string;
+  descriptionColor?: string;
+  buttonColor?: string;
+  buttonTextColor?: string;
   visible: boolean;
   order: number;
 }
@@ -108,6 +114,9 @@ export interface FeatureSectionItem {
   title: string;
   subtitle?: string;
   description?: string;
+  titleColor?: string;
+  subtitleColor?: string;
+  descriptionColor?: string;
   cards?: FeatureCardItem[];
   visible: boolean;
   order: number;
@@ -119,6 +128,9 @@ export interface StatItem {
   value: string;
   icon: string;
   description: string;
+  labelColor?: string;
+  valueColor?: string;
+  descriptionColor?: string;
   visible: boolean;
   order: number;
 }
@@ -342,6 +354,10 @@ export interface LandingCmsConfig {
   heroTitle: string;
   heroSubtitle: string;
   heroDescription: string;
+  heroTitleColor?: string;
+  heroSubtitleColor?: string;
+  heroDescriptionColor?: string;
+  heroBadgeColor?: string;
   primaryButtonText: string;
   primaryButtonLink: string;
   secondaryButtonText: string;
@@ -354,6 +370,7 @@ export interface LandingCmsConfig {
   heroTextAlign: 'left' | 'center' | 'right';
   heroHeight: 'small' | 'medium' | 'large' | 'fullscreen';
   heroBadgeText: string;
+  heroImagePresets?: Array<{ id?: string; name: string; url: string }>;
 
   // Background Photo
   interfaceBackground: BackgroundPhotoConfig;
@@ -362,10 +379,14 @@ export interface LandingCmsConfig {
   aboutTitle: string;
   aboutDescription: string;
   aboutImageUrl: string;
+  aboutTitleColor?: string;
+  aboutDescriptionColor?: string;
   aboutCards: AboutCardItem[];
 
   featuresTitle: string;
   featuresSubtitle: string;
+  featuresTitleColor?: string;
+  featuresSubtitleColor?: string;
   featureCards: FeatureCardItem[];
   featuresSections?: FeatureSectionItem[];
   showFeaturesSection?: boolean;
@@ -376,6 +397,8 @@ export interface LandingCmsConfig {
 
   statsTitle: string;
   statsSubtitle: string;
+  statsTitleColor?: string;
+  statsSubtitleColor?: string;
   stats: StatItem[];
 
   // Media & Official Logos
@@ -385,18 +408,24 @@ export interface LandingCmsConfig {
   // Gallery
   galleryTitle: string;
   gallerySubtitle: string;
+  galleryTitleColor?: string;
+  gallerySubtitleColor?: string;
   galleryLayout: 'grid' | 'masonry' | 'carousel';
   galleryPhotos: GalleryPhotoItem[];
 
   // Social Media & Posts
   socialTitle: string;
   socialSubtitle: string;
+  socialTitleColor?: string;
+  socialSubtitleColor?: string;
   socialAccounts: SocialAccountItem[];
   socialPosts: FeaturedSocialPost[];
 
   // Videos
   videoTitle: string;
   videoSubtitle: string;
+  videoTitleColor?: string;
+  videoSubtitleColor?: string;
   videosTitle?: string;
   videosSubtitle?: string;
   videos: VideoMediaItem[];
@@ -407,6 +436,8 @@ export interface LandingCmsConfig {
   // Contact Section
   contactTitle: string;
   contactSubtitle: string;
+  contactTitleColor?: string;
+  contactSubtitleColor?: string;
   officeName: string;
   officeHours: string;
   hotlineEmergency: string;
@@ -417,6 +448,8 @@ export interface LandingCmsConfig {
   footerLogos?: FooterLogoItem[];
   footerDescription: string;
   footerCopyright: string;
+  footerHeadingColor?: string;
+  footerTextColor?: string;
   footerColumns: FooterColumn[];
 
   // Theme & Appearance

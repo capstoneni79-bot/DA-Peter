@@ -19,12 +19,49 @@ import {
   Trash2,
   Image as ImageIcon,
   Camera,
+  Edit2,
+  Plus,
 } from 'lucide-react';
 import { SidebarTheme } from '../../types';
 import { storageService } from '../../services/storageService';
 import { DEFAULT_SIDEBAR_THEME, SIDEBAR_THEME_PRESETS } from '../../data/initialFormSchema';
 import { SealDA, SealMunicipality, SealTaskForce, SealSLSU } from '../common/OfficialSeals';
 import { compressImageFile } from '../../utils/imageCompressor';
+
+export interface EmblemPresetItem {
+  id: string;
+  name: string;
+  subtitle: string;
+  logoUrl?: string;
+  vectorKey?: 'SealMunicipality' | 'SealDA' | 'SealTaskForce' | 'SealSLSU';
+}
+
+const DEFAULT_EMBLEM_PRESETS: EmblemPresetItem[] = [
+  {
+    id: 'emblem-lgu',
+    name: 'Hinunangan LGU',
+    subtitle: 'Municipal Seal',
+    vectorKey: 'SealMunicipality',
+  },
+  {
+    id: 'emblem-da',
+    name: 'DA Department',
+    subtitle: 'Agriculture Seal',
+    vectorKey: 'SealDA',
+  },
+  {
+    id: 'emblem-taskforce',
+    name: 'ASF Task Force',
+    subtitle: 'Protection Seal',
+    vectorKey: 'SealTaskForce',
+  },
+  {
+    id: 'emblem-institution',
+    name: 'Agri Research Pen',
+    subtitle: 'Extension Seal',
+    vectorKey: 'SealSLSU',
+  },
+];
 
 interface SidebarColorConfigProps {
   onSaved?: () => void;
@@ -48,10 +85,35 @@ export const SidebarColorConfig: React.FC<SidebarColorConfigProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [activePreviewTab, setActivePreviewTab] = useState<'dashboard' | 'ready_to_sell' | 'messages'>('dashboard');
 
+  // Emblem Presets state
+  const [emblems, setEmblems] = useState<EmblemPresetItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('sidebar_custom_emblems');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // fallback
+    }
+    return DEFAULT_EMBLEM_PRESETS;
+  });
+
+  const [editingEmblemId, setEditingEmblemId] = useState<string | null>(null);
+  const [editEmblemName, setEditEmblemName] = useState('');
+  const [editEmblemSubtitle, setEditEmblemSubtitle] = useState('');
+  const [editEmblemUrl, setEditEmblemUrl] = useState('');
+
   // Logo configuration state
   const [urlInput, setUrlInput] = useState<string>('');
   const [isUrlInputOpen, setIsUrlInputOpen] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const saveEmblemsToStorage = (items: EmblemPresetItem[]) => {
+    setEmblems(items);
+    try {
+      localStorage.setItem('sidebar_custom_emblems', JSON.stringify(items));
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     const current = storageService.getSidebarTheme();
@@ -374,93 +436,279 @@ export const SidebarColorConfig: React.FC<SidebarColorConfigProps> = ({
               </div>
             )}
 
-            {/* Official Preset Emblems */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-stone-800 block">
-                Official Emblems (1-Click Selection):
-              </label>
+            {/* Official Preset Emblems (Editable & Uploadable) */}
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-stone-800 block">
+                  Official Emblems (1-Click Selection & Customization):
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newId = 'emblem-' + Date.now();
+                      const updated = [
+                        ...emblems,
+                        {
+                          id: newId,
+                          name: `Official Seal ${emblems.length + 1}`,
+                          subtitle: 'Agency Emblem',
+                          logoUrl: theme.logoUrl || '/icon.svg',
+                        },
+                      ];
+                      saveEmblemsToStorage(updated);
+                      setEditingEmblemId(newId);
+                      setEditEmblemName(`Official Seal ${emblems.length + 1}`);
+                      setEditEmblemSubtitle('Agency Emblem');
+                      setEditEmblemUrl(theme.logoUrl || '/icon.svg');
+                      showToast('Added new customizable emblem slot');
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 hover:text-emerald-950 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg cursor-pointer transition"
+                  >
+                    <Plus className="w-3 h-3" /> Add Emblem
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      saveEmblemsToStorage(DEFAULT_EMBLEM_PRESETS);
+                      setEditingEmblemId(null);
+                      showToast('Reset emblems to default official seals');
+                    }}
+                    className="text-[10px] text-stone-400 hover:text-stone-700 font-semibold cursor-pointer"
+                  >
+                    Reset Defaults
+                  </button>
+                </div>
+              </div>
+
+              {/* Edit Emblem Modal / Form */}
+              {editingEmblemId && (
+                <div className="p-3.5 rounded-2xl border border-emerald-300 bg-emerald-50/60 space-y-3 animate-in fade-in">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-950 text-xs flex items-center gap-1.5">
+                      <Edit2 className="w-3.5 h-3.5 text-emerald-700" />
+                      Edit Emblem Name & Photo
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setEditingEmblemId(null)}
+                      className="p-1 text-stone-400 hover:text-stone-700 rounded cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-700 mb-1">Emblem Name</label>
+                      <input
+                        type="text"
+                        value={editEmblemName}
+                        onChange={e => setEditEmblemName(e.target.value)}
+                        placeholder="e.g. Hinunangan LGU"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-stone-300 bg-white text-xs font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-700 mb-1">Subtitle / Category</label>
+                      <input
+                        type="text"
+                        value={editEmblemSubtitle}
+                        onChange={e => setEditEmblemSubtitle(e.target.value)}
+                        placeholder="e.g. Municipal Seal"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-stone-300 bg-white text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-stone-700 mb-1">Photo / Seal Image URL</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={editEmblemUrl}
+                        onChange={e => setEditEmblemUrl(e.target.value)}
+                        placeholder="https://... or upload below"
+                        className="flex-1 px-2.5 py-1.5 rounded-lg border border-stone-300 bg-white text-[11px] font-mono"
+                      />
+                      <label className="px-3 py-1.5 bg-white border border-stone-300 hover:bg-stone-50 rounded-lg text-[11px] font-bold text-stone-700 flex items-center gap-1 cursor-pointer">
+                        <Upload className="w-3 h-3 text-stone-500" /> Upload File
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async e => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              const res = await compressImageFile(file, { maxWidth: 256, maxHeight: 256, quality: 0.9 });
+                              if (res?.dataUrl) {
+                                setEditEmblemUrl(res.dataUrl);
+                              }
+                            } catch {
+                              const reader = new FileReader();
+                              reader.onload = () => {
+                                if (typeof reader.result === 'string') setEditEmblemUrl(reader.result);
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setEditingEmblemId(null)}
+                      className="px-3 py-1 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 text-xs font-semibold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = emblems.map(em =>
+                          em.id === editingEmblemId
+                            ? {
+                                ...em,
+                                name: editEmblemName.trim() || em.name,
+                                subtitle: editEmblemSubtitle.trim() || em.subtitle,
+                                logoUrl: editEmblemUrl.trim() || em.logoUrl,
+                                vectorKey: undefined,
+                              }
+                            : em
+                        );
+                        saveEmblemsToStorage(updated);
+                        const current = updated.find(e => e.id === editingEmblemId);
+                        if (current?.logoUrl) {
+                          setTheme(prev => ({ ...prev, logoUrl: current.logoUrl }));
+                        }
+                        setEditingEmblemId(null);
+                        showToast('Emblem updated successfully');
+                      }}
+                      className="px-4 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Check className="w-3 h-3" /> Save Changes
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Emblems Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {/* 1. Hinunangan Municipality */}
-                <button
-                  type="button"
-                  onClick={handleRemoveLogo}
-                  className={`p-2.5 rounded-xl border flex flex-col items-center gap-2 text-center transition cursor-pointer ${
-                    !theme.logoUrl
-                      ? 'border-emerald-600 bg-emerald-50/60 ring-2 ring-emerald-500/20'
-                      : 'border-stone-200 hover:bg-stone-50 hover:border-stone-300'
-                  }`}
-                >
-                  <div className="w-8 h-8 flex items-center justify-center">
-                    <SealMunicipality className="w-full h-full" />
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-bold text-stone-900 leading-tight">Hinunangan LGU</div>
-                    <div className="text-[10px] text-stone-500">Municipal Seal</div>
-                  </div>
-                </button>
+                {emblems.map(emblem => {
+                  const isSelected =
+                    (!emblem.logoUrl && !theme.logoUrl && emblem.vectorKey === 'SealMunicipality') ||
+                    (emblem.logoUrl && theme.logoUrl === emblem.logoUrl);
 
-                {/* 2. Department of Agriculture */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTheme(prev => ({
-                      ...prev,
-                      logoUrl: 'https://images.unsplash.com/photo-1595152772835-219674b2a8a6?auto=format&fit=crop&w=200&q=80',
-                    }));
-                    showToast('Selected Department of Agriculture emblem');
-                  }}
-                  className="p-2.5 rounded-xl border border-stone-200 hover:bg-stone-50 hover:border-stone-300 flex flex-col items-center gap-2 text-center transition cursor-pointer"
-                >
-                  <div className="w-8 h-8 flex items-center justify-center">
-                    <SealDA className="w-full h-full" />
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-bold text-stone-900 leading-tight">DA Department</div>
-                    <div className="text-[10px] text-stone-500">Agriculture Seal</div>
-                  </div>
-                </button>
+                  return (
+                    <div
+                      key={emblem.id}
+                      className={`p-2.5 rounded-xl border flex flex-col justify-between text-center transition group relative ${
+                        isSelected
+                          ? 'border-emerald-600 bg-emerald-50/60 ring-2 ring-emerald-500/20'
+                          : 'border-stone-200 bg-white hover:bg-stone-50 hover:border-stone-300'
+                      }`}
+                    >
+                      {/* Top Action Bar */}
+                      <div className="flex items-center justify-end gap-1 mb-1">
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation();
+                            setEditingEmblemId(emblem.id);
+                            setEditEmblemName(emblem.name);
+                            setEditEmblemSubtitle(emblem.subtitle);
+                            setEditEmblemUrl(emblem.logoUrl || '');
+                          }}
+                          className="p-1 rounded text-stone-400 hover:text-stone-700 hover:bg-stone-100 cursor-pointer"
+                          title="Edit Name & Photo"
+                        >
+                          <Edit2 className="w-2.5 h-2.5" />
+                        </button>
+                        {emblems.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation();
+                              const updated = emblems.filter(e => e.id !== emblem.id);
+                              saveEmblemsToStorage(updated);
+                              if (editingEmblemId === emblem.id) setEditingEmblemId(null);
+                            }}
+                            className="p-1 rounded text-stone-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                            title="Delete Emblem"
+                          >
+                            <Trash2 className="w-2.5 h-2.5" />
+                          </button>
+                        )}
+                      </div>
 
-                {/* 3. ASF Task Force */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTheme(prev => ({
-                      ...prev,
-                      logoUrl: 'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=200&q=80',
-                    }));
-                    showToast('Selected National ASF Task Force emblem');
-                  }}
-                  className="p-2.5 rounded-xl border border-stone-200 hover:bg-stone-50 hover:border-stone-300 flex flex-col items-center gap-2 text-center transition cursor-pointer"
-                >
-                  <div className="w-8 h-8 flex items-center justify-center">
-                    <SealTaskForce className="w-full h-full" />
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-bold text-stone-900 leading-tight">ASF Task Force</div>
-                    <div className="text-[10px] text-stone-500">Protection Seal</div>
-                  </div>
-                </button>
+                      {/* Clickable Card Body to Select Emblem */}
+                      <div
+                        onClick={() => {
+                          if (emblem.logoUrl) {
+                            setTheme(prev => ({ ...prev, logoUrl: emblem.logoUrl }));
+                            showToast(`Selected ${emblem.name}`);
+                          } else if (emblem.vectorKey === 'SealMunicipality') {
+                            handleRemoveLogo();
+                            showToast(`Selected ${emblem.name}`);
+                          } else if (emblem.vectorKey === 'SealDA') {
+                            setTheme(prev => ({
+                              ...prev,
+                              logoUrl: 'https://images.unsplash.com/photo-1595152772835-219674b2a8a6?auto=format&fit=crop&w=200&q=80',
+                            }));
+                            showToast(`Selected ${emblem.name}`);
+                          } else if (emblem.vectorKey === 'SealTaskForce') {
+                            setTheme(prev => ({
+                              ...prev,
+                              logoUrl: 'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=200&q=80',
+                            }));
+                            showToast(`Selected ${emblem.name}`);
+                          } else {
+                            setTheme(prev => ({
+                              ...prev,
+                              logoUrl: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=200&q=80',
+                            }));
+                            showToast(`Selected ${emblem.name}`);
+                          }
+                        }}
+                        className="cursor-pointer space-y-1.5 flex flex-col items-center"
+                      >
+                        <div className="w-9 h-9 flex items-center justify-center rounded-lg overflow-hidden bg-stone-50 border border-stone-200 p-0.5">
+                          {emblem.logoUrl ? (
+                            <img
+                              src={emblem.logoUrl}
+                              alt={emblem.name}
+                              className="w-full h-full object-contain"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : emblem.vectorKey === 'SealDA' ? (
+                            <SealDA className="w-full h-full" />
+                          ) : emblem.vectorKey === 'SealTaskForce' ? (
+                            <SealTaskForce className="w-full h-full" />
+                          ) : emblem.vectorKey === 'SealSLSU' ? (
+                            <SealSLSU className="w-full h-full" />
+                          ) : (
+                            <SealMunicipality className="w-full h-full" />
+                          )}
+                        </div>
 
-                {/* 4. SLSU Synergy */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTheme(prev => ({
-                      ...prev,
-                      logoUrl: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=200&q=80',
-                    }));
-                    showToast('Selected SLSU Academic Synergy emblem');
-                  }}
-                  className="p-2.5 rounded-xl border border-stone-200 hover:bg-stone-50 hover:border-stone-300 flex flex-col items-center gap-2 text-center transition cursor-pointer"
-                >
-                  <div className="w-8 h-8 flex items-center justify-center">
-                    <SealSLSU className="w-full h-full" />
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-bold text-stone-900 leading-tight">SLSU Hinunangan</div>
-                    <div className="text-[10px] text-stone-500">Academic Seal</div>
-                  </div>
-                </button>
+                        <div>
+                          <div className="text-[11px] font-bold text-stone-900 leading-tight line-clamp-1">{emblem.name}</div>
+                          <div className="text-[9px] text-stone-500 line-clamp-1">{emblem.subtitle}</div>
+                        </div>
+
+                        {isSelected && (
+                          <span className="text-[9px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded-full">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

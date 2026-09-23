@@ -15,7 +15,52 @@ export const ContactTab: React.FC<ContactTabProps> = ({ config, onChange, onOpen
       <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-2xs space-y-4">
         <div className="flex items-center gap-2 border-b pb-3 border-stone-100">
           <MapPin className="w-4 h-4 text-emerald-700" />
-          <h3 className="font-bold text-stone-900 text-sm">Official Office Coordinates</h3>
+          <h3 className="font-bold text-stone-900 text-sm">Contact Section Headlines & Details</h3>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-2 border-b border-stone-100">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block font-semibold text-stone-700">Section Title</label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-stone-500">Font Color:</span>
+                <input
+                  type="color"
+                  value={config.contactTitleColor || '#064e3b'}
+                  onChange={e => onChange({ contactTitleColor: e.target.value })}
+                  className="w-6 h-6 rounded-md border border-stone-300 cursor-pointer p-0.5"
+                  title="Title Font Color"
+                />
+              </div>
+            </div>
+            <input
+              type="text"
+              value={config.contactTitle || 'Contact Us'}
+              onChange={e => onChange({ contactTitle: e.target.value })}
+              className="w-full px-3 py-2 rounded-xl border border-stone-300 font-bold text-stone-900"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block font-semibold text-stone-700">Section Subtitle</label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-stone-500">Font Color:</span>
+                <input
+                  type="color"
+                  value={config.contactSubtitleColor || '#78716c'}
+                  onChange={e => onChange({ contactSubtitleColor: e.target.value })}
+                  className="w-6 h-6 rounded-md border border-stone-300 cursor-pointer p-0.5"
+                  title="Subtitle Font Color"
+                />
+              </div>
+            </div>
+            <input
+              type="text"
+              value={config.contactSubtitle || 'Reach out to Municipal Agriculture Officers'}
+              onChange={e => onChange({ contactSubtitle: e.target.value })}
+              className="w-full px-3 py-2 rounded-xl border border-stone-300"
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

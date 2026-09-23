@@ -167,9 +167,21 @@ export const AboutTab: React.FC<AboutTabProps> = ({ config, onChange, onOpenMedi
           </form>
         )}
 
-        <div className="space-y-3">
-          <div>
-            <label className="block font-semibold text-stone-700 mb-1">Section Title</label>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block font-semibold text-stone-700">Section Title</label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-stone-500">Font Color:</span>
+                <input
+                  type="color"
+                  value={config.aboutTitleColor || '#064e3b'}
+                  onChange={e => onChange({ aboutTitleColor: e.target.value })}
+                  className="w-6 h-6 rounded-md border border-stone-300 cursor-pointer p-0.5"
+                  title="Title Font Color"
+                />
+              </div>
+            </div>
             <input
               type="text"
               value={config.aboutTitle}
@@ -178,8 +190,20 @@ export const AboutTab: React.FC<AboutTabProps> = ({ config, onChange, onOpenMedi
             />
           </div>
 
-          <div>
-            <label className="block font-semibold text-stone-700 mb-1">Narrative Description</label>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block font-semibold text-stone-700">Narrative Description</label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-stone-500">Font Color:</span>
+                <input
+                  type="color"
+                  value={config.aboutDescriptionColor || '#44403c'}
+                  onChange={e => onChange({ aboutDescriptionColor: e.target.value })}
+                  className="w-6 h-6 rounded-md border border-stone-300 cursor-pointer p-0.5"
+                  title="Description Font Color"
+                />
+              </div>
+            </div>
             <textarea
               rows={4}
               value={config.aboutDescription}
@@ -190,7 +214,7 @@ export const AboutTab: React.FC<AboutTabProps> = ({ config, onChange, onOpenMedi
 
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block font-semibold text-stone-700">Featured Photo (SLSU / Extension / Farm)</label>
+              <label className="block font-semibold text-stone-700">Featured Photo (Agriculture / Farm)</label>
               <button
                 type="button"
                 onClick={() => setShowQuickMedia(!showQuickMedia)}
