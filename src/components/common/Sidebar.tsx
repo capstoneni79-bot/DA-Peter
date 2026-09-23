@@ -509,13 +509,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   style={{ borderColor: theme.sectionDividerColor || '#1e3a8a' }}
                 >
                   <div
-                    className="px-3 py-1 text-[10px] font-black uppercase tracking-wider flex items-center justify-between opacity-80"
-                    style={{ color: theme.menuTextColor || '#cbd5e1' }}
+                    className="px-3.5 py-1.5 text-[10px] font-black uppercase tracking-wider flex items-center opacity-70"
+                    style={{ color: theme.menuTextColor || '#94a3b8' }}
                   >
                     <span>{t('nav_system_admin')}</span>
-                    <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 text-[9px] font-bold">
-                      ADMIN
-                    </span>
                   </div>
 
                   {/* Landing Page Settings */}

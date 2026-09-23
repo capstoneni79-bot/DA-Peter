@@ -34,6 +34,7 @@ import {
   Shield,
   Phone,
   User,
+  Tag,
 } from 'lucide-react';
 import {
   Barangay,
@@ -63,6 +64,39 @@ import {
   getBarangayASFZone,
   shouldShowASFWarning,
 } from '../../utils/swineRegistryLogic';
+
+/**
+ * Highlights text segments that match the search query in real time
+ */
+const HighlightMatch: React.FC<{ text: string | null | undefined; query: string }> = ({
+  text,
+  query,
+}) => {
+  if (!text) return null;
+  if (!query || !query.trim()) return <>{text}</>;
+
+  const trimmedQuery = query.trim();
+  const escaped = trimmedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escaped})`, 'gi');
+  const parts = text.split(regex);
+
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark
+            key={i}
+            className="bg-amber-200 text-amber-950 font-bold px-0.5 rounded-xs"
+          >
+            {part}
+          </mark>
+        ) : (
+          <React.Fragment key={i}>{part}</React.Fragment>
+        )
+      )}
+    </>
+  );
+};
 
 interface PigsRecordsProps {
   swineList: SwineRecord[];
@@ -96,6 +130,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
 
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchScope, setSearchScope] = useState<'all' | 'tag' | 'owner'>('all');
   const [selectedBarangay, setSelectedBarangay] = useState<string>(
     currentRole === 'focal' && currentUser?.assignedBarangay ? currentUser.assignedBarangay : 'all'
   );
@@ -119,10 +154,31 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   const [visibleColumnIds, setVisibleColumnIds] = useState<Record<string, boolean>>({});
   const [showColumnPicker, setShowColumnPicker] = useState<boolean>(false);
 
-  // Modals
+  // Modals & Selection
   const [viewingRecord, setViewingRecord] = useState<SwineRecord | null>(null);
   const [deleteConfirmRecord, setDeleteConfirmRecord] = useState<SwineRecord | null>(null);
   const [printSingleRecord, setPrintSingleRecord] = useState<SwineRecord | null>(null);
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState<boolean>(false);
+  const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
+  const [bulkActionNotice, setBulkActionNotice] = useState<string>('');
+
+  // Keep selectedRecordIds synchronized with swineList
+  useEffect(() => {
+    setSelectedRecordIds(prev => {
+      if (prev.size === 0) return prev;
+      const validIds = new Set(swineList.map(s => s.id));
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach(id => {
+        if (validIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [swineList]);
 
   useEffect(() => {
     if (initialViewingRecordId) {
@@ -181,6 +237,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     setCurrentPage(1);
   }, [
     searchTerm,
+    searchScope,
     selectedBarangay,
     swineTypeFilter,
     farmScaleFilter,
@@ -325,18 +382,62 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
       if (readyFilter === 'ready' && !s.computedIsReady) return false;
       if (readyFilter === 'not_ready' && s.computedIsReady) return false;
 
-      // Search Filter: Pig ID, Farmer, Barangay, Swine Type, Status
+      // Real-time Search Filter: Tag ID, Owner Name, Barangay, Swine Type, Status
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim();
-        const matchesPigId = (s.computedPigId || '').toLowerCase().includes(q);
-        const matchesFarmer = (s.farmerName || '').toLowerCase().includes(q);
+        const qClean = q.replace(/[^a-z0-9]/gi, '');
+
+        // Tag ID matching (Pig ID Tag & Ear Tag No)
+        const pigIdRaw = (s.computedPigId || '').toLowerCase();
+        const earTagRaw = (s.earTagNo || '').toLowerCase();
+        const explicitPigId = (s.pigIdTag || '').toLowerCase();
+        const pigIdClean = pigIdRaw.replace(/[^a-z0-9]/gi, '');
+        const earTagClean = earTagRaw.replace(/[^a-z0-9]/gi, '');
+        const explicitPigIdClean = explicitPigId.replace(/[^a-z0-9]/gi, '');
+
+        const matchesTagId =
+          pigIdRaw.includes(q) ||
+          earTagRaw.includes(q) ||
+          explicitPigId.includes(q) ||
+          (qClean.length > 0 &&
+            (pigIdClean.includes(qClean) ||
+              earTagClean.includes(qClean) ||
+              explicitPigIdClean.includes(qClean)));
+
+        // Owner Name matching (Farmer Name, Farm Name, RSBSA ID, Contact)
+        const farmerRaw = (s.farmerName || '').toLowerCase();
+        const farmRaw = (s.farmName || '').toLowerCase();
+        const rsbsaRaw = (s.rsbsaId || '').toLowerCase();
+        const contactRaw = (s.farmerContact || '').toLowerCase();
+
+        const matchesOwner =
+          farmerRaw.includes(q) ||
+          farmRaw.includes(q) ||
+          rsbsaRaw.includes(q) ||
+          contactRaw.includes(q);
+
+        // General / Secondary matching
         const matchesBarangay = (s.barangay || '').toLowerCase().includes(q);
         const matchesType = (s.swineType || '').toLowerCase().includes(q);
         const matchesStatus = (s.status || '').toLowerCase().includes(q);
         const matchesCustom = matchRecordSearch(s, q, activeFields);
 
-        if (!matchesPigId && !matchesFarmer && !matchesBarangay && !matchesType && !matchesStatus && !matchesCustom) {
-          return false;
+        if (searchScope === 'tag') {
+          if (!matchesTagId) return false;
+        } else if (searchScope === 'owner') {
+          if (!matchesOwner) return false;
+        } else {
+          // 'all' mode: matches Tag ID OR Owner Name OR Barangay/Type/Status/Custom
+          if (
+            !matchesTagId &&
+            !matchesOwner &&
+            !matchesBarangay &&
+            !matchesType &&
+            !matchesStatus &&
+            !matchesCustom
+          ) {
+            return false;
+          }
         }
       }
 
@@ -355,6 +456,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     biosecurityFilter,
     readyFilter,
     searchTerm,
+    searchScope,
     activeFields,
   ]);
 
@@ -442,6 +544,67 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     setDeleteConfirmRecord(null);
     onRefresh();
   };
+
+  // Bulk Selection & Deletion Helpers (Admin)
+  const isAllCurrentPageSelected =
+    paginatedRecords.length > 0 && paginatedRecords.every(r => selectedRecordIds.has(r.id));
+  const isSomeCurrentPageSelected = paginatedRecords.some(r => selectedRecordIds.has(r.id));
+
+  const handleToggleSelectRecord = (id: string) => {
+    setSelectedRecordIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleSelectAllCurrentPage = () => {
+    if (isAllCurrentPageSelected) {
+      setSelectedRecordIds(prev => {
+        const next = new Set(prev);
+        paginatedRecords.forEach(r => next.delete(r.id));
+        return next;
+      });
+    } else {
+      setSelectedRecordIds(prev => {
+        const next = new Set(prev);
+        paginatedRecords.forEach(r => next.add(r.id));
+        return next;
+      });
+    }
+  };
+
+  const handleSelectAllFiltered = () => {
+    setSelectedRecordIds(new Set(sortedRecords.map(r => r.id)));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedRecordIds(new Set());
+  };
+
+  const handleConfirmBulkDelete = () => {
+    if (selectedRecordIds.size === 0) return;
+    const idsToDelete: string[] = Array.from(selectedRecordIds);
+    storageService.deleteSwineRecords(idsToDelete);
+    setSelectedRecordIds(new Set());
+    setShowBulkDeleteModal(false);
+    setBulkActionNotice(
+      `Successfully deleted ${idsToDelete.length} swine record${idsToDelete.length === 1 ? '' : 's'}.`
+    );
+    onRefresh();
+
+    setTimeout(() => {
+      setBulkActionNotice('');
+    }, 5000);
+  };
+
+  const selectedRecordsList = useMemo(() => {
+    return swineList.filter(s => selectedRecordIds.has(s.id));
+  }, [swineList, selectedRecordIds]);
 
   const handleToggleSell = (swine: SwineRecord) => {
     const nextState = !swine.readyToSell;
@@ -759,6 +922,19 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             <span>Word (.DOC)</span>
           </button>
 
+          {/* Bulk Delete Button (Admin only, active when records selected) */}
+          {currentRole === 'admin' && selectedRecordIds.size > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowBulkDeleteModal(true)}
+              className="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm animate-fadeIn"
+              title={`Bulk delete ${selectedRecordIds.size} selected records`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Bulk Delete ({selectedRecordIds.size})</span>
+            </button>
+          )}
+
           {/* Register New Swine */}
           {currentRole !== 'agent' && (
             <button
@@ -848,21 +1024,138 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
       )}
 
       {/* Comprehensive Search & Filters Suite */}
-      <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-xs space-y-3">
-        {/* Row 1: Search and Core Filters */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs">
-          {/* Search Box: Pig ID, Farmer, Barangay, Swine Type, Status */}
-          <div className="relative sm:col-span-2">
-            <Search className="w-4 h-4 absolute left-3 top-2.5 text-stone-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Search by Pig ID, Farmer, Barangay, Type, Status..."
-              className="w-full pl-9 pr-3 py-2 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
-            />
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-stone-200 shadow-xs space-y-3.5">
+        {/* Real-time Search Filter Bar */}
+        <div className="space-y-2">
+          <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2.5">
+            {/* Search Input Box */}
+            <div className="relative flex-1">
+              <Search
+                className={`w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors pointer-events-none ${
+                  searchTerm ? 'text-emerald-700' : 'text-stone-400'
+                }`}
+              />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Escape') setSearchTerm('');
+                }}
+                placeholder={
+                  searchScope === 'tag'
+                    ? 'Type Tag ID (e.g. HIN-2026-..., Ear Tag No)...'
+                    : searchScope === 'owner'
+                    ? 'Type Owner Name, Raiser, Farm, or RSBSA ID...'
+                    : 'Real-time search by Tag ID or Owner Name (e.g. HIN-2026, Juan)...'
+                }
+                className={`w-full pl-10 pr-28 py-2.5 rounded-xl border text-xs font-medium transition focus:outline-hidden ${
+                  searchTerm
+                    ? 'border-emerald-600 bg-emerald-50/25 ring-2 ring-emerald-600/15'
+                    : 'border-stone-300 bg-white hover:border-stone-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20'
+                }`}
+              />
+
+              {/* Inside right: Live Match Counter & Clear Button */}
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                {searchTerm.trim() && (
+                  <>
+                    <span
+                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${
+                        totalRecords > 0
+                          ? 'bg-emerald-50 text-emerald-850 border-emerald-200'
+                          : 'bg-rose-50 text-rose-800 border-rose-200'
+                      }`}
+                    >
+                      {totalRecords} {totalRecords === 1 ? 'match' : 'matches'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSearchTerm('')}
+                      className="p-1 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-md transition cursor-pointer"
+                      title="Clear search (Esc)"
+                      aria-label="Clear search"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Dedicated Search Scope Selector */}
+            <div className="flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs shrink-0 self-start md:self-auto gap-1">
+              <span className="text-[10px] font-bold uppercase text-stone-400 px-1.5 tracking-wider hidden lg:inline">
+                Scope:
+              </span>
+              <button
+                type="button"
+                onClick={() => setSearchScope('all')}
+                className={`px-2.5 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${
+                  searchScope === 'all'
+                    ? 'bg-white text-stone-900 shadow-2xs'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                All Fields
+              </button>
+              <button
+                type="button"
+                onClick={() => setSearchScope('tag')}
+                className={`px-2.5 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1 ${
+                  searchScope === 'tag'
+                    ? 'bg-emerald-800 text-white shadow-2xs'
+                    : 'text-stone-600 hover:text-emerald-800'
+                }`}
+              >
+                <Tag className="w-3 h-3" />
+                <span>Tag ID</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSearchScope('owner')}
+                className={`px-2.5 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1 ${
+                  searchScope === 'owner'
+                    ? 'bg-emerald-800 text-white shadow-2xs'
+                    : 'text-stone-600 hover:text-emerald-800'
+                }`}
+              >
+                <User className="w-3 h-3" />
+                <span>Owner Name</span>
+              </button>
+            </div>
           </div>
 
+          {/* Real-time search status notice */}
+          {searchTerm.trim() && (
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5 text-xs text-stone-500">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                <span className="text-[11px]">
+                  Filtering by{' '}
+                  <strong className="text-stone-900">
+                    {searchScope === 'tag'
+                      ? 'Tag ID / Ear Tag'
+                      : searchScope === 'owner'
+                      ? 'Owner / Raiser Name'
+                      : 'Tag ID & Owner Name'}
+                  </strong>{' '}
+                  matching <strong className="text-emerald-900">&ldquo;{searchTerm}&rdquo;</strong> ({totalRecords} found)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="text-[11px] text-emerald-800 hover:text-emerald-950 font-semibold cursor-pointer underline"
+              >
+                Reset Search (Esc)
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Row 2: Secondary Dropdown Filters */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs pt-2 border-t border-stone-100">
           {/* Barangay Filter */}
           <div>
             <select
@@ -1048,15 +1341,105 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         </div>
       </div>
 
+      {/* Admin Bulk Selection Actions Banner */}
+      {currentRole === 'admin' && selectedRecordIds.size > 0 && (
+        <div className="bg-stone-900 text-white p-3.5 sm:p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-md border border-stone-800 animate-fadeIn">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 font-black text-xs shrink-0">
+              {selectedRecordIds.size}
+            </div>
+            <div>
+              <div className="font-bold text-xs flex items-center gap-1.5">
+                <span>
+                  {selectedRecordIds.size} swine {selectedRecordIds.size === 1 ? 'record' : 'records'} selected
+                </span>
+                <span className="text-[10px] text-stone-400 font-normal">
+                  (out of {totalRecords} filtered)
+                </span>
+              </div>
+              <p className="text-[11px] text-stone-400">
+                Admins can remove all selected swine records simultaneously after confirmation.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedRecordIds.size < totalRecords && (
+              <button
+                type="button"
+                onClick={handleSelectAllFiltered}
+                className="px-3 py-1.5 rounded-xl border border-stone-700 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold transition cursor-pointer"
+              >
+                Select all {totalRecords} filtered
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              className="px-3 py-1.5 rounded-xl border border-stone-700 bg-stone-800/80 hover:bg-stone-700 text-stone-300 text-xs font-semibold transition cursor-pointer"
+            >
+              Clear selection
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowBulkDeleteModal(true)}
+              className="px-4 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Bulk Delete ({selectedRecordIds.size})</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Action / Deletion Success Notice */}
+      {bulkActionNotice && (
+        <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between gap-2 shadow-2xs animate-fadeIn">
+          <div className="flex items-center gap-2 font-medium">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{bulkActionNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setBulkActionNotice('')}
+            className="text-stone-400 hover:text-stone-700 p-1 cursor-pointer"
+            aria-label="Close notice"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Primary Swine Records Table */}
       <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs whitespace-nowrap min-w-[1250px]">
             <thead className="bg-stone-100/90 text-stone-700 font-bold border-b border-stone-200 uppercase tracking-wider text-[10px]">
               <tr>
+                {/* Column 0: Checkbox Selector (Admin Only) */}
+                {currentRole === 'admin' && (
+                  <th className="py-3.5 px-3 w-10 min-w-[40px] max-w-[40px] text-center sticky left-0 bg-stone-100/95 z-20 border-r border-stone-200 shadow-2xs">
+                    <input
+                      type="checkbox"
+                      checked={isAllCurrentPageSelected}
+                      ref={el => {
+                        if (el) {
+                          el.indeterminate = isSomeCurrentPageSelected && !isAllCurrentPageSelected;
+                        }
+                      }}
+                      onChange={handleToggleSelectAllCurrentPage}
+                      className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-500 border-stone-300 cursor-pointer accent-emerald-700"
+                      aria-label="Select all swine records on this page"
+                      title={isAllCurrentPageSelected ? 'Deselect all on this page' : 'Select all on this page'}
+                    />
+                  </th>
+                )}
+
                 {/* Column 1: Pig ID Tag (Sticky Left, Read-only) */}
                 <th
-                  className="py-3.5 px-4 sticky left-0 bg-stone-100/95 z-10 border-r border-stone-200 shadow-2xs cursor-pointer hover:bg-stone-200/50"
+                  className={`py-3.5 px-4 sticky ${
+                    currentRole === 'admin' ? 'left-10' : 'left-0'
+                  } bg-stone-100/95 z-10 border-r border-stone-200 shadow-2xs cursor-pointer hover:bg-stone-200/50`}
                   onClick={() => {
                     setSortFieldKey('pigIdTag');
                     setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -1246,15 +1629,106 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             <tbody className="divide-y divide-stone-200">
               {paginatedRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="py-12 text-center text-stone-400 text-sm">
-                    No swine records found matching your filters.
+                  <td colSpan={currentRole === 'admin' ? 14 : 13} className="py-16 text-center">
+                    {searchTerm.trim() ? (
+                      <div className="max-w-md mx-auto space-y-3 px-4">
+                        <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-700 border border-amber-200 flex items-center justify-center mx-auto shadow-2xs">
+                          <Search className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-stone-900 text-sm">
+                            No swine records found for &ldquo;{searchTerm}&rdquo;
+                          </h4>
+                          <p className="text-xs text-stone-500 mt-1">
+                            No swine records matched in{' '}
+                            {searchScope === 'tag'
+                              ? 'Tag ID / Ear Tag numbers'
+                              : searchScope === 'owner'
+                              ? 'Owner / Raiser names'
+                              : 'Tag ID or Owner Name'}
+                            . Try searching by partial tag number or owner surname.
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setSearchTerm('')}
+                            className="px-3.5 py-1.5 rounded-xl bg-emerald-750 hover:bg-emerald-850 text-white font-bold text-xs transition cursor-pointer shadow-2xs"
+                          >
+                            Clear Search
+                          </button>
+                          {searchScope !== 'all' && (
+                            <button
+                              type="button"
+                              onClick={() => setSearchScope('all')}
+                              className="px-3.5 py-1.5 rounded-xl border border-stone-300 hover:bg-stone-50 text-stone-700 font-semibold text-xs transition cursor-pointer"
+                            >
+                              Search All Fields
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 py-4">
+                        <p className="text-stone-400 text-sm">No swine records found matching your active filters.</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedBarangay('all');
+                            setSwineTypeFilter('all');
+                            setFarmScaleFilter('all');
+                            setAsfZoneFilter('all');
+                            setStatusFilter('all');
+                            setBiosecurityFilter('all');
+                            setReadyFilter('all');
+                          }}
+                          className="text-xs text-emerald-800 hover:text-emerald-950 font-bold underline cursor-pointer"
+                        >
+                          Reset all filters
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ) : (
-                paginatedRecords.map(swine => (
-                  <tr key={swine.id} className="hover:bg-emerald-50/40 transition group">
+                paginatedRecords.map(swine => {
+                  const isSelected = selectedRecordIds.has(swine.id);
+                  return (
+                  <tr
+                    key={swine.id}
+                    className={`transition group ${
+                      isSelected ? 'bg-amber-50/75 hover:bg-amber-100/70' : 'hover:bg-emerald-50/40'
+                    }`}
+                  >
+                    {/* Column 0: Checkbox Selector (Admin Only) */}
+                    {currentRole === 'admin' && (
+                      <td
+                        className={`py-3 px-3 text-center sticky left-0 z-20 border-r border-stone-200 w-10 min-w-[40px] max-w-[40px] ${
+                          isSelected
+                            ? 'bg-amber-50/95 group-hover:bg-amber-100/90'
+                            : 'bg-white group-hover:bg-emerald-50/90'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleSelectRecord(swine.id)}
+                          className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-500 border-stone-300 cursor-pointer accent-emerald-700"
+                          aria-label={`Select swine record ${swine.computedPigId || swine.earTagNo || swine.id}`}
+                        />
+                      </td>
+                    )}
+
                     {/* Column 1: Pig ID Tag (Immutable Read-only) */}
-                    <td className="py-3 px-4 sticky left-0 bg-white group-hover:bg-emerald-50/90 z-10 border-r border-stone-200">
+                    <td
+                      className={`py-3 px-4 sticky ${
+                        currentRole === 'admin' ? 'left-10' : 'left-0'
+                      } z-10 border-r border-stone-200 ${
+                        isSelected
+                          ? 'bg-amber-50/95 group-hover:bg-amber-100/90'
+                          : 'bg-white group-hover:bg-emerald-50/90'
+                      }`}
+                    >
                       <div className="flex items-center gap-2">
                         <img
                           src={swine.photoUrl || '/icon.svg'}
@@ -1264,8 +1738,13 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                         <div>
                           <span className="font-mono font-black text-emerald-950 block text-xs flex items-center gap-1">
                             <Lock className="w-2.5 h-2.5 text-stone-400" />
-                            {swine.computedPigId}
+                            <HighlightMatch text={swine.computedPigId} query={searchTerm} />
                           </span>
+                          {swine.earTagNo && swine.earTagNo !== swine.computedPigId && (
+                            <span className="text-[10px] text-stone-500 font-mono block">
+                              Ear: <HighlightMatch text={swine.earTagNo} query={searchTerm} />
+                            </span>
+                          )}
                           <span className="text-[10px] text-stone-400 block">
                             Reg: {new Date(swine.registeredAt).toLocaleDateString()}
                           </span>
@@ -1273,17 +1752,28 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                       </div>
                     </td>
 
-                    {/* Column 2: Farmer */}
+                    {/* Column 2: Farmer / Owner */}
                     <td className="py-3 px-4 border-r border-stone-200">
-                      <div className="font-bold text-stone-900">{swine.farmerName}</div>
+                      <div className="font-bold text-stone-900">
+                        <HighlightMatch text={swine.farmerName} query={searchTerm} />
+                      </div>
+                      {swine.farmName && (
+                        <div className="text-[10px] text-emerald-800 font-medium truncate max-w-[180px]">
+                          Farm: <HighlightMatch text={swine.farmName} query={searchTerm} />
+                        </div>
+                      )}
                       {swine.farmerContact && (
-                        <div className="text-[10px] text-stone-400 font-mono">{swine.farmerContact}</div>
+                        <div className="text-[10px] text-stone-400 font-mono">
+                          <HighlightMatch text={swine.farmerContact} query={searchTerm} />
+                        </div>
                       )}
                     </td>
 
                     {/* Column 3: Barangay */}
                     <td className="py-3 px-4 border-r border-stone-200">
-                      <span className="font-semibold text-stone-800">Brgy. {swine.barangay}</span>
+                      <span className="font-semibold text-stone-800">
+                        Brgy. <HighlightMatch text={swine.barangay} query={searchTerm} />
+                      </span>
                     </td>
 
                     {/* Column 4: Birth Date */}
@@ -1483,7 +1973,8 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1492,8 +1983,15 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         {/* Pagination Footer */}
         {totalRecords > 0 && (
           <div className="px-4 py-3 bg-stone-50 border-t border-stone-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="text-stone-600 font-medium">
-              Page <strong>{validCurrentPage}</strong> of <strong>{totalPages}</strong> ({totalRecords} records)
+            <div className="text-stone-600 font-medium flex items-center gap-2">
+              <span>
+                Page <strong>{validCurrentPage}</strong> of <strong>{totalPages}</strong> ({totalRecords} records)
+              </span>
+              {currentRole === 'admin' && selectedRecordIds.size > 0 && (
+                <span className="text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[11px]">
+                  {selectedRecordIds.size} selected
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-1.5">
@@ -1822,6 +2320,92 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 className="flex-1 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition cursor-pointer text-xs shadow-sm"
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================== BULK DELETE CONFIRMATION MODAL ===================== */}
+      {showBulkDeleteModal && selectedRecordIds.size > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-stone-200 space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-red-100 flex items-center justify-center text-red-600 mx-auto shadow-2xs">
+              <Trash2 className="w-7 h-7" />
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="text-lg font-black text-stone-900">
+                Bulk Delete Swine Records?
+              </h3>
+              <p className="text-xs text-stone-500 font-medium">
+                You are about to permanently remove{' '}
+                <strong className="text-red-700 font-bold">
+                  {selectedRecordIds.size} swine {selectedRecordIds.size === 1 ? 'record' : 'records'}
+                </strong>{' '}
+                from the Hinunangan database.
+              </p>
+            </div>
+
+            {/* Warning Callout Box */}
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-3.5 text-xs space-y-1 text-red-900">
+              <div className="flex items-center gap-1.5 font-bold text-red-800">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
+                <span>Permanent Irreversible Action</span>
+              </div>
+              <p className="text-[11px] text-red-700 leading-relaxed">
+                This action cannot be undone. All selected swine registrations, ear tags, computed metrics, and audit entries will be permanently erased.
+              </p>
+            </div>
+
+            {/* Selected Swine Summary & Preview */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-stone-600 px-1 font-semibold">
+                <span>Selected Records ({selectedRecordIds.size}):</span>
+                <span className="text-[10px] text-stone-400">
+                  {new Set(selectedRecordsList.map(s => s.barangay)).size} barangay(s) affected
+                </span>
+              </div>
+              <div className="bg-stone-50 rounded-2xl border border-stone-200 max-h-48 overflow-y-auto divide-y divide-stone-200/70 p-2">
+                {selectedRecordsList.slice(0, 8).map(record => (
+                  <div key={record.id} className="py-2 px-2 flex items-center justify-between text-xs">
+                    <div className="min-w-0 pr-2">
+                      <span className="font-mono font-black text-stone-900 text-[11px] block truncate">
+                        🔒 {record.computedPigId || record.pigIdTag || record.earTagNo}
+                      </span>
+                      <span className="text-[10px] text-stone-500 block truncate">
+                        {record.farmerName} &bull; Brgy. {record.barangay}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase bg-stone-200 text-stone-700 shrink-0">
+                      {record.swineType || 'Swine'}
+                    </span>
+                  </div>
+                ))}
+                {selectedRecordIds.size > 8 && (
+                  <div className="py-2 text-center text-[11px] text-stone-500 font-semibold bg-stone-100/60 rounded-xl mt-1">
+                    + {selectedRecordIds.size - 8} more selected records
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-stone-300 text-stone-700 font-bold hover:bg-stone-50 transition cursor-pointer text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBulkDelete}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition cursor-pointer text-xs shadow-sm flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete {selectedRecordIds.size} Records</span>
               </button>
             </div>
           </div>

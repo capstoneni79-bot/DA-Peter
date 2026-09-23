@@ -336,6 +336,48 @@ export const storageService = {
         data: { id },
         timestamp: new Date().toISOString(),
       });
+    } else {
+      const user = this.getCurrentUser();
+      fetch(`/api/swine/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: {
+          'x-user-role': user?.role || 'admin',
+          'x-user-name': user?.name || 'Administrator',
+          'x-user-id': user?.id || 'admin',
+        },
+      }).catch(err => console.warn('Cloud SQL delete sync notice:', err));
+    }
+  },
+
+  deleteSwineRecords(ids: string[]): void {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    const records = this.getSwineRecords();
+    const filtered = records.filter(r => !idSet.has(r.id));
+    this.saveSwineRecords(filtered);
+
+    if (this.isEffectiveOffline()) {
+      ids.forEach(id => {
+        this.enqueueOfflineAction({
+          id: 'queue-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+          action: 'delete',
+          entity: 'swine',
+          data: { id },
+          timestamp: new Date().toISOString(),
+        });
+      });
+    } else {
+      const user = this.getCurrentUser();
+      fetch('/api/swine/bulk-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || 'admin',
+          'x-user-name': user?.name || 'Administrator',
+          'x-user-id': user?.id || 'admin',
+        },
+        body: JSON.stringify({ ids }),
+      }).catch(err => console.warn('Cloud SQL bulk delete sync notice:', err));
     }
   },
 

@@ -275,6 +275,36 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
+          {/* User Profile Chip & Sign Out Button (When logged in) */}
+          {currentUser && currentRole !== 'landing' && (
+            <div className="flex items-center gap-2 pl-2 border-l border-stone-200">
+              <div className="w-8 h-8 rounded-xl bg-emerald-800 text-white font-black text-xs flex items-center justify-center shadow-2xs">
+                {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'U'}
+              </div>
+              <div className="hidden md:block text-left leading-tight">
+                <p className="text-xs font-bold text-stone-900 truncate max-w-[150px]">
+                  {currentUser.fullName}
+                </p>
+                <p className="text-[10px] text-stone-500 font-medium">
+                  {currentUser.role === 'admin'
+                    ? 'Municipal Admin'
+                    : currentUser.assignedBarangay
+                    ? `Brgy. ${currentUser.assignedBarangay}`
+                    : 'Field Focal'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onLogout}
+                title={t('header_sign_out')}
+                className="p-2 rounded-xl text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                aria-label="Sign out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* Official Login Button (When not logged in) */}
           {!currentUser && (
             <button

@@ -1,0 +1,68 @@
+import { boolean, integer, jsonb, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
+
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  uid: text('uid').notNull().unique(),
+  email: text('email').notNull(),
+  name: text('name'),
+  role: text('role').notNull().default('focal'),
+  assignedBarangay: text('assigned_barangay'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const swineRecords = pgTable('swine_records', {
+  id: text('id').primaryKey(),
+  computedPigId: text('computed_pig_id').notNull(),
+  pigIdTag: text('pig_id_tag'),
+  earTagNo: text('ear_tag_no'),
+  farmerName: text('farmer_name').notNull(),
+  farmName: text('farm_name'),
+  farmerContact: text('farmer_contact'),
+  barangay: text('barangay').notNull(),
+  birthDate: text('birth_date'),
+  ageDays: integer('age_days'),
+  ageMonths: text('age_months'),
+  estimatedWeightKg: text('estimated_weight_kg'),
+  actualWeightKg: text('actual_weight_kg'),
+  swineType: text('swine_type').notNull().default('FATTER_GROWER'),
+  farmScale: text('farm_scale').notNull().default('BACKYARD'),
+  asfZone: text('asf_zone').notNull().default('RED'),
+  biosecurityWarning: boolean('biosecurity_warning').notNull().default(false),
+  status: text('status').notNull().default('HEALTHY'),
+  readyToSell: boolean('ready_to_sell').notNull().default(false),
+  priceEstimate: text('price_estimate'),
+  photoUrl: text('photo_url'),
+  isArchived: boolean('is_archived').notNull().default(false),
+  registeredAt: text('registered_at').notNull(),
+  customFields: jsonb('custom_fields'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const issuedCertificates = pgTable('issued_certificates', {
+  id: text('id').primaryKey(),
+  controlNumber: text('control_number').notNull(),
+  swineId: text('swine_id'),
+  farmerName: text('farmer_name').notNull(),
+  barangay: text('barangay').notNull(),
+  issueDate: text('issue_date').notNull(),
+  purpose: text('purpose').notNull(),
+  destination: text('destination'),
+  inspectedBy: text('inspected_by').notNull(),
+  qrPayload: text('qr_payload'),
+  validUntil: text('valid_until'),
+  status: text('status').notNull().default('VALID'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const auditLogs = pgTable('audit_logs', {
+  id: serial('id').primaryKey(),
+  action: text('action').notNull(),
+  entity: text('entity').notNull(),
+  entityId: text('entity_id'),
+  userId: text('user_id'),
+  username: text('username'),
+  userRole: text('user_role'),
+  barangay: text('barangay'),
+  details: text('details'),
+  timestamp: timestamp('timestamp').defaultNow(),
+});
