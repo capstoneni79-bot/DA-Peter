@@ -7,10 +7,10 @@ import {
 } from '../data/hinunanganBoundariesGeoJSON';
 
 export const BOUNDARY_STORAGE_KEYS = {
-  MUNICIPAL_RINGS: 'hinunangan_municipal_boundary_rings_v3',
-  BARANGAY_BOUNDARIES: 'hinunangan_barangay_boundaries_dict_v3',
-  STORAGE_METADATA: 'hinunangan_boundary_storage_meta_v3',
-  CUSTOM_OVERLAYS: 'hinunangan_custom_gis_overlays_v3',
+  MUNICIPAL_RINGS: 'hinunangan_municipal_boundary_rings_v4_level4',
+  BARANGAY_BOUNDARIES: 'hinunangan_barangay_boundaries_dict_v4_level4',
+  STORAGE_METADATA: 'hinunangan_boundary_storage_meta_v4_level4',
+  CUSTOM_OVERLAYS: 'hinunangan_custom_gis_overlays_v4_level4',
 } as const;
 
 export interface BoundaryStorageMeta {
@@ -53,7 +53,7 @@ export function initBoundaryStorage(): boolean {
       );
 
       const meta: BoundaryStorageMeta = {
-        version: '3.0-precise-natural-nonrectangular',
+        version: '4.0-github-barangay-level-4',
         cachedAt: new Date().toISOString(),
         source: HINUNANGAN_MUNICIPAL_METADATA.source,
         psgc: HINUNANGAN_MUNICIPAL_METADATA.psgc,
@@ -177,7 +177,7 @@ export function resetBoundariesToOfficial(): boolean {
     );
 
     const meta: BoundaryStorageMeta = {
-      version: '3.0-precise-natural-nonrectangular',
+      version: '4.0-github-barangay-level-4',
       cachedAt: new Date().toISOString(),
       source: HINUNANGAN_MUNICIPAL_METADATA.source,
       psgc: HINUNANGAN_MUNICIPAL_METADATA.psgc,

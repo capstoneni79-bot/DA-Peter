@@ -522,6 +522,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <button
                     type="button"
                     onClick={() => onSelectTab('landing_manager')}
+                    title={t('nav_landing_settings')}
                     className="w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-3 transition cursor-pointer hover:bg-white/10"
                     style={{
                       backgroundColor:
@@ -543,18 +544,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             : theme.iconColor || '#93c5fd',
                       }}
                     />
-                    <div className="flex-1 min-w-0 flex items-center justify-between">
-                      <span className="truncate">{t('nav_landing_settings')}</span>
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/25 text-emerald-300">
-                        HUB
-                      </span>
-                    </div>
+                    <span className="flex-1 min-w-0 truncate">{t('nav_landing_settings')}</span>
                   </button>
 
                   {/* Registry Form Customization (Admin-Only) */}
                   <button
                     type="button"
                     onClick={() => onSelectTab('form_customizer')}
+                    title={t('nav_form_customizer')}
                     className="w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-3 transition cursor-pointer hover:bg-white/10"
                     style={{
                       backgroundColor: activeTab === 'form_customizer' ? theme.activeMenuColor || '#2563eb' : 'transparent',
@@ -567,13 +564,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         color: activeTab === 'form_customizer' ? theme.activeTextColor || '#ffffff' : theme.iconColor || '#93c5fd',
                       }}
                     />
-                    <span className="truncate">{t('nav_form_customizer')}</span>
+                    <span className="flex-1 min-w-0 truncate">{t('nav_form_customizer')}</span>
                   </button>
 
                   {/* Sidebar Configuration (Colors & Logo) */}
                   <button
                     type="button"
                     onClick={() => onSelectTab('sidebar_color')}
+                    title={t('nav_sidebar_config')}
                     className="w-full text-left px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-3 transition cursor-pointer hover:bg-white/10"
                     style={{
                       backgroundColor: activeTab === 'sidebar_color' ? theme.activeMenuColor || '#2563eb' : 'transparent',
@@ -586,10 +584,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         color: activeTab === 'sidebar_color' ? theme.activeTextColor || '#ffffff' : theme.iconColor || '#93c5fd',
                       }}
                     />
-                    <div className="flex-1 min-w-0 flex items-center justify-between">
-                      <span className="truncate">{t('nav_sidebar_config')}</span>
-                      <span className="text-[10px] opacity-70">Colors & Logo</span>
-                    </div>
+                    <span className="flex-1 min-w-0 truncate">{t('nav_sidebar_config')}</span>
                   </button>
 
                   {/* LFT Accounts & Settings */}

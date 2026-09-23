@@ -37,6 +37,14 @@ import {
   UserAccount,
 } from '../types';
 import { LegalImportHistoryRecord } from '../types/legalImport';
+import {
+  calculateSwineAge,
+  classifyFarmScale,
+  getBarangayASFZone,
+  getEstimatedWeightRange,
+  isValidPigIdTag,
+  validateSwineRecordForSave,
+} from '../utils/swineRegistryLogic';
 
 const STORAGE_KEYS = {
   SWINE: 'da_hinunangan_swine_records_v1',
@@ -146,9 +154,12 @@ export const storageService = {
   // Swine Records
   getSwineRecords(): SwineRecord[] {
     const stored = getItem<SwineRecord[] | null>(STORAGE_KEYS.SWINE, null);
-    if (stored === null) {
-      setItem(STORAGE_KEYS.SWINE, INITIAL_SWINE_RECORDS);
-      return INITIAL_SWINE_RECORDS;
+    if (stored === null || stored.length === 0) {
+      if (INITIAL_SWINE_RECORDS && INITIAL_SWINE_RECORDS.length > 0) {
+        setItem(STORAGE_KEYS.SWINE, INITIAL_SWINE_RECORDS);
+        return INITIAL_SWINE_RECORDS;
+      }
+      return [];
     }
     // Existing Data Compatibility: Normalize legacy 11-digit formatted contacts (e.g. 0917-888-9999 -> 09178889999)
     let hasNormalized = false;
@@ -182,8 +193,39 @@ export const storageService = {
 
     const records = this.getSwineRecords();
     const isOffline = this.isEffectiveOffline();
+
+    // Comprehensive validation
+    const pigIdTag = (record.pigIdTag || record.earTagNo || '').trim();
+    const validation = validateSwineRecordForSave(
+      {
+        ...record,
+        pigIdTag,
+      },
+      records
+    );
+    if (!validation.isValid) {
+      throw new Error(validation.errorMessage || 'Invalid swine record data.');
+    }
+
+    // Derive calculated fields consistently
+    const ageResult = calculateSwineAge(record.birthDate);
+    const safeDays = ageResult.isValid ? ageResult.days : (record.ageDays || 0);
+    const safeMonths = ageResult.isValid ? ageResult.months : (record.ageMonths || 0);
+    const estimatedWeightKg = getEstimatedWeightRange(safeDays);
+    const farmScale = record.farmScale || classifyFarmScale(record.penCapacity || (record.farmType === 'commercial' ? 50 : 5));
+    const asfZone = record.asfZone || getBarangayASFZone(record.barangay);
+
     const newRecord: SwineRecord = {
       ...record,
+      pigIdTag,
+      earTagNo: pigIdTag,
+      ageDays: safeDays,
+      ageMonths: safeMonths,
+      estimatedWeightKg,
+      actualWeightKg: record.actualWeightKg !== undefined ? record.actualWeightKg : (record.weightKg || null),
+      weightKg: record.weightKg || (record.actualWeightKg ? Number(record.actualWeightKg) : 60),
+      farmScale,
+      asfZone,
       farmerContact: record.farmerContact.trim(),
       isSynced: !isOffline,
       updatedAt: new Date().toISOString(),
@@ -222,8 +264,39 @@ export const storageService = {
     const isOffline = this.isEffectiveOffline();
     const index = records.findIndex(r => r.id === updated.id);
     if (index !== -1) {
+      const existing = records[index];
+      // Pig ID Tag must remain immutable when editing
+      const pigIdTag = existing.pigIdTag || existing.earTagNo || updated.pigIdTag || updated.earTagNo;
+
+      const validation = validateSwineRecordForSave(
+        {
+          ...updated,
+          pigIdTag,
+        },
+        records,
+        updated.id
+      );
+      if (!validation.isValid) {
+        throw new Error(validation.errorMessage || 'Invalid swine record data.');
+      }
+
+      const ageResult = calculateSwineAge(updated.birthDate);
+      const safeDays = ageResult.isValid ? ageResult.days : (updated.ageDays || 0);
+      const safeMonths = ageResult.isValid ? ageResult.months : (updated.ageMonths || 0);
+      const estimatedWeightKg = getEstimatedWeightRange(safeDays);
+      const farmScale = updated.farmScale || classifyFarmScale(updated.penCapacity || (updated.farmType === 'commercial' ? 50 : 5));
+      const asfZone = updated.asfZone || getBarangayASFZone(updated.barangay);
+
       records[index] = {
         ...updated,
+        pigIdTag,
+        earTagNo: pigIdTag,
+        ageDays: safeDays,
+        ageMonths: safeMonths,
+        estimatedWeightKg,
+        actualWeightKg: updated.actualWeightKg !== undefined ? updated.actualWeightKg : (updated.weightKg || null),
+        farmScale,
+        asfZone,
         farmerContact: updated.farmerContact.trim(),
         isSynced: !isOffline,
         updatedAt: new Date().toISOString(),
@@ -327,6 +400,16 @@ export const storageService = {
     if (!stored || stored.length === 0) {
       setItem(STORAGE_KEYS.ACCOUNTS, INITIAL_ACCOUNTS);
       return INITIAL_ACCOUNTS;
+    }
+    let changed = false;
+    INITIAL_ACCOUNTS.forEach(acc => {
+      if (!stored.some(s => s.username === acc.username || s.id === acc.id)) {
+        stored.push(acc);
+        changed = true;
+      }
+    });
+    if (changed) {
+      setItem(STORAGE_KEYS.ACCOUNTS, stored);
     }
     return stored;
   },

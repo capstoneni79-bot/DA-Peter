@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { Component, useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   MapPin,
   Layers,
@@ -16,81 +16,77 @@ import {
   RotateCcw,
   Navigation,
   X,
-  Sliders,
-  Sparkles,
-  ChevronDown,
-  ChevronRight,
   Search,
-  ExternalLink,
   Users,
   Building,
   Activity,
+  Phone,
+  Calendar,
+  Sparkles,
+  ChevronRight,
+  ExternalLink,
+  Lock,
 } from 'lucide-react';
 import L from 'leaflet';
-import { Barangay, SwineRecord } from '../../types';
+import { Barangay, SwineRecord, UserAccount, UserRole, ASFZone } from '../../types';
 import { HINUNANGAN_BARANGAYS, HinunanganBarangayGeo, findClosestBarangay } from '../../data/barangays';
 import {
   HINUNANGAN_BARANGAY_BOUNDARIES,
-  HINUNANGAN_GEOJSON,
   HINUNANGAN_MUNICIPAL_METADATA,
 } from '../../data/hinunanganBoundariesGeoJSON';
 import {
   initBoundaryStorage,
-  getStoredMunicipalRings,
   getStoredBarangayBoundaries,
 } from '../../services/boundaryStorageService';
+import {
+  HeatmapMode,
+  computeBarangayGisMetrics,
+  generateHeatmapPoints,
+  getHeatmapColor,
+  BarangayGisMetrics,
+} from '../../utils/gisCalculations';
 import { GoogleGisMap } from './GoogleGisMap';
 
-// 3D Red Location Pin Icon with circular center cutout hole
-const createCustomPinIcon = (isReadyToSell: boolean, uniqueId: string = '') => {
-  const gradId = `pinRedGrad_${uniqueId || Math.random().toString(36).substring(2, 7)}`;
+// Custom 3D Swine Marker Icon with 🐖
+const createSwineMarkerIcon = (isReadyToSell: boolean, tagId: string = '') => {
+  const bg = isReadyToSell ? '#f59e0b' : '#dc2626';
   const iconHtml = `
-    <div style="position: relative; width: 34px; height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.15s ease-out;" onmouseover="this.style.transform='scale(1.15) translate(-0.5px, -2px)'" onmouseout="this.style.transform='scale(1)'">
-      <svg width="34" height="44" viewBox="0 0 34 44" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 3px 6px rgba(0,0,0,0.35));">
-        <defs>
-          <radialGradient id="${gradId}" cx="35%" cy="30%" r="68%">
-            <stop offset="0%" stop-color="#ff7070"/>
-            <stop offset="25%" stop-color="#ff263b"/>
-            <stop offset="72%" stop-color="#cc081f"/>
-            <stop offset="100%" stop-color="#7a000e"/>
-          </radialGradient>
-        </defs>
-
-        <!-- Ground drop shadow under tip -->
-        <ellipse cx="17" cy="42" rx="6" ry="1.8" fill="rgba(0,0,0,0.28)"/>
-
-        <!-- 3D Red Teardrop Body with Circular Center Cutout Hole -->
-        <path fill-rule="evenodd" clip-rule="evenodd" 
-          d="M17 2C7.611 2 0 9.611 0 19C0 29.5 13.5 39.8 17 41C20.5 39.8 34 29.5 34 19C34 9.611 26.389 2 17 2ZM17 27C12.582 27 9 23.418 9 19C9 14.582 12.582 11 17 11C21.418 11 25 14.582 25 19C25 23.418 21.418 27 17 27Z" 
-          fill="url(#${gradId})" 
-          stroke="#900010" 
-          stroke-width="0.75"
-        />
-
-        <!-- Specular Highlight curved gleam along top-left shoulder -->
-        <path d="M6 15C7.5 8 11.5 4.8 17 4.8C20.5 4.8 23.5 6.2 26 8.8" stroke="rgba(255,255,255,0.72)" stroke-width="2" stroke-linecap="round" fill="none"/>
-
-        <!-- Inner bottom bevel glow on ring cutout -->
-        <path d="M12 22.5C13.2 24.5 15 25.5 17 25.5C19 25.5 20.8 24.5 22 22.5" stroke="rgba(255,255,255,0.32)" stroke-width="1.2" stroke-linecap="round" fill="none"/>
-
-        ${
-          isReadyToSell
-            ? `
-          <!-- Ready to sell golden star badge on shoulder -->
-          <circle cx="27" cy="8" r="6" fill="#f59e0b" stroke="#ffffff" stroke-width="1.8"/>
-          <text x="27" y="11" text-anchor="middle" font-size="8" font-weight="900" fill="#78350f">★</text>
-        `
-            : ''
-        }
-      </svg>
+    <div style="position: relative; transform: translate(-50%, -100%); cursor: pointer; display: flex; flex-direction: column; align-items: center;" class="swine-map-marker">
+      <div style="background-color: ${bg}; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.4); font-size: 14px;">
+        🐖
+      </div>
+      <div style="background: rgba(24, 24, 27, 0.9); color: white; font-weight: 700; font-size: 9px; padding: 1px 4px; border-radius: 4px; border: 1px solid #3f3f46; white-space: nowrap; margin-top: 2px;">
+        ${tagId}
+      </div>
     </div>
   `;
   return L.divIcon({
-    className: 'custom-swine-marker-3d',
+    className: 'custom-swine-marker-div',
     html: iconHtml,
-    iconSize: [34, 44],
-    iconAnchor: [17, 42],
-    popupAnchor: [0, -38],
+    iconSize: [32, 42],
+    iconAnchor: [16, 42],
+    popupAnchor: [0, -40],
+  });
+};
+
+// Custom Farmer Marker Icon with 👤
+const createFarmerMarkerIcon = (farmerName: string) => {
+  const iconHtml = `
+    <div style="position: relative; transform: translate(-50%, -100%); cursor: pointer; display: flex; flex-direction: column; align-items: center;" class="farmer-map-marker">
+      <div style="background-color: #2563eb; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1.5px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.35); font-size: 11px;">
+        👤
+      </div>
+      <div style="background: rgba(24, 24, 27, 0.9); color: white; font-weight: 700; font-size: 8px; padding: 1px 4px; border-radius: 4px; border: 1px solid #3f3f46; white-space: nowrap; margin-top: 2px;">
+        ${farmerName}
+      </div>
+    </div>
+  `;
+  return L.divIcon({
+    className: 'custom-farmer-marker-div',
+    html: iconHtml,
+    iconSize: [28, 38],
+    iconAnchor: [14, 38],
+    popupAnchor: [0, -36],
   });
 };
 
@@ -131,27 +127,18 @@ const createBarangayTextLabel = (
   });
 };
 
-// Live GPS Pulsing Icon
-const userGpsIcon = L.divIcon({
-  className: 'user-gps-marker',
-  html: `
-    <div style="position: relative; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;">
-      <div style="position: absolute; width: 26px; height: 26px; background: rgba(37, 99, 235, 0.35); border-radius: 50%; animation: pulse 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
-      <div style="position: absolute; width: 14px; height: 14px; background: #2563eb; border: 2.5px solid white; border-radius: 50%; box-shadow: 0 0 8px rgba(37,99,235,0.8);"></div>
-    </div>
-  `,
-  iconSize: [26, 26],
-  iconAnchor: [13, 13],
-});
-
-interface GisMapProps {
+export interface GisMapProps {
   swineList: SwineRecord[];
   barangays: Barangay[];
   selectedBarangay?: string;
+  currentUser?: UserAccount | null;
+  currentRole?: UserRole | 'landing';
   onSelectSwine?: (swine: SwineRecord) => void;
+  onViewSwineRecord?: (swine: SwineRecord) => void;
   onPickLocation?: (lat: number, lng: number, closestBarangay?: string) => void;
   isLocationPicker?: boolean;
   initialCenter?: [number, number];
+  targetSwineId?: string | null;
 }
 
 interface LeafletGisMapProps extends GisMapProps {
@@ -162,55 +149,72 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
   swineList,
   barangays,
   selectedBarangay,
+  currentUser,
+  currentRole = 'focal',
   onSelectSwine,
+  onViewSwineRecord,
   onPickLocation,
   isLocationPicker = false,
   initialCenter,
+  targetSwineId,
   onSwitchToGoogle,
 }) => {
-
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
 
-  // Dedicated Layer Groups for Independent Management
-  const muniBoundaryLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  // Dedicated Layer Groups
   const boundariesLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const labelsLayerGroupRef = useRef<L.LayerGroup | null>(null);
-  const pinsLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  const swinePinsLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  const farmerPinsLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const heatmapLayerGroupRef = useRef<L.LayerGroup | null>(null);
-  const asfZonesLayerGroupRef = useRef<L.LayerGroup | null>(null);
-  const pickerLayerGroupRef = useRef<L.LayerGroup | null>(null);
 
-  const userMarkerRef = useRef<L.Marker | null>(null);
-  const userCircleRef = useRef<L.Circle | null>(null);
-  const polygonRefsMap = useRef<{ [name: string]: L.Polygon }>({});
+  // Determine if current user is Focal Person with assigned barangay restriction
+  const isFocal = currentRole === 'focal' || currentUser?.role === 'focal';
+  const assignedBarangay = isFocal
+    ? (currentUser?.assignedBarangay || currentUser?.barangay_id || 'Ambacon')
+    : undefined;
+
+  // Normalized assigned barangay name
+  const authorizedBarangayName = useMemo(() => {
+    if (!assignedBarangay) return undefined;
+    const match = HINUNANGAN_BARANGAYS.find(
+      b =>
+        b.name.toLowerCase() === assignedBarangay.toLowerCase() ||
+        b.id.toLowerCase() === assignedBarangay.toLowerCase()
+    );
+    return match ? match.name : assignedBarangay;
+  }, [assignedBarangay]);
 
   // Map Controls State
   const [mapMode, setMapMode] = useState<'street' | 'satellite' | 'terrain'>('street');
   const [currentZoom, setCurrentZoom] = useState<number>(13);
 
-  // Independent Layer Toggles
-  const [showMunicipalBoundary, setShowMunicipalBoundary] = useState<boolean>(true);
+  // Layer Visibility
   const [showBoundaries, setShowBoundaries] = useState<boolean>(true);
+  const [showSwinePins, setShowSwinePins] = useState<boolean>(true);
+  const [showFarmerPins, setShowFarmerPins] = useState<boolean>(true);
   const [showLabels, setShowLabels] = useState<boolean>(true);
-  const [showPins, setShowPins] = useState<boolean>(true);
   const [showHeatmap, setShowHeatmap] = useState<boolean>(false);
-  const [showAsfZones, setShowAsfZones] = useState<boolean>(false);
-  const [boundaryOpacity, setBoundaryOpacity] = useState<number>(0.12); // 0.05, 0.15, 0.30
+  const [heatmapMode, setHeatmapMode] = useState<HeatmapMode>('swine_density');
+  const [heatmapOpacity, setHeatmapOpacity] = useState<number>(0.5);
+  const [boundaryOpacity, setBoundaryOpacity] = useState<number>(0.18);
 
-  // Filters & Selection
-  const [filterReadyOnly, setFilterReadyOnly] = useState<boolean>(false);
-  const [activeBarangayFilter, setActiveBarangayFilter] = useState<string>(selectedBarangay || 'all');
-  const [hoveredBarangay, setHoveredBarangay] = useState<string | null>(null);
-  const [selectedBarangayData, setSelectedBarangayData] = useState<any | null>(null);
+  // Filter States
+  const [selectedBarangayFilter, setSelectedBarangayFilter] = useState<string>(
+    authorizedBarangayName || selectedBarangay || 'all'
+  );
+  const [selectedSwineType, setSelectedSwineType] = useState<string>('all');
+  const [selectedMarketStatus, setSelectedMarketStatus] = useState<string>('all');
+  const [selectedAsfZone, setSelectedAsfZone] = useState<string>('all');
 
-  // GPS & Interaction
-  const [gpsActive, setGpsActive] = useState<boolean>(false);
-  const [gpsNotification, setGpsNotification] = useState<string | null>(null);
-  const [pickedPoint, setPickedPoint] = useState<[number, number] | null>(null);
-  const [isLayersPanelOpen, setIsLayersPanelOpen] = useState<boolean>(false);
+  // UI Panels & Feedback
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState<boolean>(false);
   const [isLegendOpen, setIsLegendOpen] = useState<boolean>(true);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [accessWarning, setAccessWarning] = useState<string | null>(null);
+  const [selectedBarangayData, setSelectedBarangayData] = useState<BarangayGisMetrics | null>(null);
 
   // Tile layer URL definitions
   const tileLayers = {
@@ -237,90 +241,151 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
     },
   };
 
-  // Calculate bounding box containing all 40 Hinunangan barangays
-  const getHinunanganBounds = useCallback(() => {
-    const latLngs = HINUNANGAN_BARANGAYS.map(b => L.latLng(b.latitude, b.longitude));
-    return L.latLngBounds(latLngs);
-  }, []);
+  // Compute live metrics from single source of truth: Swine Records
+  const allBarangayMetrics = useMemo(() => {
+    return computeBarangayGisMetrics(barangays, swineList, authorizedBarangayName);
+  }, [barangays, swineList, authorizedBarangayName]);
 
-  // Aggregated Barangay Dataset with Dynamic Live Metrics
-  const activeBarangayMetrics = useMemo(() => {
-    const storedBgys = getStoredBarangayBoundaries();
-    return HINUNANGAN_BARANGAYS.map(geo => {
-      const live = barangays.find(b => b.name.toLowerCase() === geo.name.toLowerCase());
-      const swineInBarangay = swineList.filter(
-        s => (s.barangay || '').toLowerCase() === geo.name.toLowerCase() && !s.isArchived
-      );
-      const readyToSell = swineInBarangay.filter(s => s.readyToSell || s.status === 'ready_to_sell').length;
-      const farmersCount = new Set(
-        swineInBarangay.map(s => (s.farmerName || s.ownerName || '').trim().toLowerCase()).filter(Boolean)
-      ).size;
+  // Compute Heatmap Points
+  const heatmapData = useMemo(() => {
+    return generateHeatmapPoints(allBarangayMetrics, heatmapMode);
+  }, [allBarangayMetrics, heatmapMode]);
 
-      const boundaryPolygon = storedBgys[geo.name] || HINUNANGAN_BARANGAY_BOUNDARIES[geo.name] || [];
-      const feature = HINUNANGAN_GEOJSON.features.find(f => f.properties.name === geo.name);
+  // Filtered Swine Records for Display
+  const filteredSwineRecords = useMemo(() => {
+    return swineList.filter(s => {
+      if (s.isArchived) return false;
 
-      return {
-        ...geo,
-        riskLevel: (live?.riskLevel || geo.defaultRiskLevel) as 'green' | 'yellow' | 'red',
-        boundaryPolygon,
-        areaHectares: feature?.properties.areaHectares || 120.5,
-        perimeterKm: feature?.properties.perimeterKm || 4.8,
-        totalSwine: swineInBarangay.length,
-        readyToSell,
-        farmersCount: farmersCount || (swineInBarangay.length > 0 ? Math.ceil(swineInBarangay.length * 0.7) : 0),
-        activeRecords: swineInBarangay.length,
-        focalPerson: live?.focalPersonName || geo.focalPersonName,
-        contact: live?.contactNumber || geo.contactNumber,
-      };
+      // 1. Strict Focal Person Restriction
+      if (authorizedBarangayName) {
+        if ((s.barangay || '').trim().toLowerCase() !== authorizedBarangayName.toLowerCase()) {
+          return false;
+        }
+      }
+
+      // 2. Admin Barangay Filter
+      if (
+        !authorizedBarangayName &&
+        selectedBarangayFilter !== 'all' &&
+        (s.barangay || '').toLowerCase() !== selectedBarangayFilter.toLowerCase()
+      ) {
+        return false;
+      }
+
+      // 3. Swine Type Filter
+      if (selectedSwineType !== 'all' && s.swineType !== selectedSwineType) {
+        return false;
+      }
+
+      // 4. Market Status Filter
+      if (selectedMarketStatus === 'ready_to_sell' && !s.readyToSell && s.status !== 'ready_to_sell') {
+        return false;
+      }
+      if (selectedMarketStatus === 'active' && s.status !== 'healthy') {
+        return false;
+      }
+      if (selectedMarketStatus === 'sold' && s.status !== 'sold') {
+        return false;
+      }
+
+      // 5. ASF Zone Filter
+      if (selectedAsfZone !== 'all') {
+        const bgMetric = allBarangayMetrics.find(
+          b => b.barangayName.toLowerCase() === (s.barangay || '').toLowerCase()
+        );
+        if (bgMetric && bgMetric.asfZone !== selectedAsfZone) {
+          return false;
+        }
+      }
+
+      return true;
     });
-  }, [barangays, swineList]);
+  }, [
+    swineList,
+    authorizedBarangayName,
+    selectedBarangayFilter,
+    selectedSwineType,
+    selectedMarketStatus,
+    selectedAsfZone,
+    allBarangayMetrics,
+  ]);
+
+  // Swine with valid GPS coordinates
+  const swineWithGps = useMemo(() => {
+    return filteredSwineRecords.filter(
+      s => typeof s.latitude === 'number' && typeof s.longitude === 'number' && s.latitude > 0 && s.longitude > 0
+    );
+  }, [filteredSwineRecords]);
+
+  // Distinct Farmer Markers from swine pens
+  const farmerMarkers = useMemo(() => {
+    const map = new Map<string, { farmerName: string; contact: string; barangay: string; lat: number; lng: number; swineCount: number }>();
+    swineWithGps.forEach(s => {
+      const key = `${s.farmerName || 'Unknown'}-${s.barangay}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          farmerName: s.farmerName || 'Farmer',
+          contact: s.farmerContact || 'N/A',
+          barangay: s.barangay,
+          lat: s.latitude,
+          lng: s.longitude,
+          swineCount: 1,
+        });
+      } else {
+        const existing = map.get(key)!;
+        existing.swineCount += 1;
+      }
+    });
+    return Array.from(map.values());
+  }, [swineWithGps]);
 
   // 1. Initialize Leaflet Map
   useEffect(() => {
     if (!mapContainerRef.current) return;
     if (mapInstanceRef.current) return;
 
-    const bounds = getHinunanganBounds();
-    const center = initialCenter
-      ? L.latLng(initialCenter[0], initialCenter[1])
-      : bounds.getCenter();
+    let centerLat = 10.4015;
+    let centerLng = 125.195;
+    let initialZoom = 13;
+
+    if (initialCenter && initialCenter[0] && initialCenter[1]) {
+      centerLat = initialCenter[0];
+      centerLng = initialCenter[1];
+      initialZoom = 15;
+    } else if (authorizedBarangayName) {
+      const bg = HINUNANGAN_BARANGAYS.find(b => b.name.toLowerCase() === authorizedBarangayName.toLowerCase());
+      if (bg) {
+        centerLat = bg.latitude;
+        centerLng = bg.longitude;
+        initialZoom = 14;
+      }
+    }
 
     const map = L.map(mapContainerRef.current, {
-      center: center,
-      zoom: 13,
+      center: [centerLat, centerLng],
+      zoom: initialZoom,
       zoomControl: false,
     });
 
-    if (!initialCenter) {
-      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
-    }
-
-    // Add Tile Layer
     const currentConfig = tileLayers.street;
     const tile = L.tileLayer(currentConfig.url, currentConfig.options).addTo(map);
     tileLayerRef.current = tile;
 
-    // Create Dedicated Layer Groups in Visual Stacking Order
-    muniBoundaryLayerGroupRef.current = L.layerGroup().addTo(map);
-    asfZonesLayerGroupRef.current = L.layerGroup().addTo(map);
+    // Create Layer Groups in visual stacking order
     heatmapLayerGroupRef.current = L.layerGroup().addTo(map);
     boundariesLayerGroupRef.current = L.layerGroup().addTo(map);
     labelsLayerGroupRef.current = L.layerGroup().addTo(map);
-    pinsLayerGroupRef.current = L.layerGroup().addTo(map);
-    pickerLayerGroupRef.current = L.layerGroup().addTo(map);
+    swinePinsLayerGroupRef.current = L.layerGroup().addTo(map);
+    farmerPinsLayerGroupRef.current = L.layerGroup().addTo(map);
 
     mapInstanceRef.current = map;
 
-    // Zoom and Pan Listeners
     map.on('zoomend', () => {
       setCurrentZoom(map.getZoom());
     });
 
-    // Location Picker Click Handler
     map.on('click', (e: L.LeafletMouseEvent) => {
       const { lat, lng } = e.latlng;
-      setPickedPoint([lat, lng]);
-
       const closest = findClosestBarangay(lat, lng);
       if (onPickLocation) {
         onPickLocation(Number(lat.toFixed(6)), Number(lng.toFixed(6)), closest.name);
@@ -338,1016 +403,768 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
     };
   }, []);
 
-  // 2. Responsive Resize Observer
-  useEffect(() => {
-    if (!mapContainerRef.current) return;
-
-    const resizeObserver = new ResizeObserver(() => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.invalidateSize();
-      }
-    });
-
-    resizeObserver.observe(mapContainerRef.current);
-    return () => resizeObserver.disconnect();
-  }, []);
-
-  // 3. Tile Layer Switching
+  // Update Base Tile Layer when mode changes
   useEffect(() => {
     if (!mapInstanceRef.current) return;
-    const map = mapInstanceRef.current;
-
     if (tileLayerRef.current) {
-      map.removeLayer(tileLayerRef.current);
+      mapInstanceRef.current.removeLayer(tileLayerRef.current);
     }
-
-    const config = tileLayers[mapMode] || tileLayers.street;
-    const newTileLayer = L.tileLayer(config.url, config.options);
-
-    newTileLayer.on('tileerror', () => {
-      console.warn(`Tile load error on ${mapMode}, OpenStreetMap fallback engaged.`);
-    });
-
-    newTileLayer.addTo(map);
-    tileLayerRef.current = newTileLayer;
-    map.invalidateSize();
+    const currentConfig = tileLayers[mapMode];
+    tileLayerRef.current = L.tileLayer(currentConfig.url, currentConfig.options).addTo(mapInstanceRef.current);
   }, [mapMode]);
 
-  // 4. Handle External Selected Barangay Change & Zoom
-  useEffect(() => {
-    if (selectedBarangay) {
-      setActiveBarangayFilter(selectedBarangay);
+  // Handle clicking a barangay polygon
+  const handleBarangayClick = useCallback((name: string) => {
+    if (authorizedBarangayName && name.toLowerCase() !== authorizedBarangayName.toLowerCase()) {
+      setAccessWarning(`Access restricted. You are assigned to: ${authorizedBarangayName}`);
+      setTimeout(() => setAccessWarning(null), 4000);
+      return;
     }
-  }, [selectedBarangay]);
 
-  // Handle Focus & Zoom when activeBarangayFilter changes
-  useEffect(() => {
-    if (!mapInstanceRef.current) return;
-    const map = mapInstanceRef.current;
-
-    if (activeBarangayFilter === 'all') {
-      setSelectedBarangayData(null);
-      const bounds = getHinunanganBounds();
-      map.fitBounds(bounds, { padding: [35, 35], maxZoom: 14 });
-    } else {
-      const matched = activeBarangayMetrics.find(
-        b => b.name.toLowerCase() === activeBarangayFilter.toLowerCase()
-      );
-      if (matched) {
-        setSelectedBarangayData(matched);
-        if (matched.boundaryPolygon && matched.boundaryPolygon.length >= 3) {
-          const polyBounds = L.latLngBounds(matched.boundaryPolygon.map(p => L.latLng(p[0], p[1])));
-          map.fitBounds(polyBounds, { padding: [50, 50], maxZoom: 16 });
-        } else {
-          map.flyTo([matched.latitude, matched.longitude], 15, { duration: 1.2 });
-        }
+    const metric = allBarangayMetrics.find(m => m.barangayName.toLowerCase() === name.toLowerCase());
+    if (metric) {
+      setSelectedBarangayData(metric);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.flyTo([metric.latitude, metric.longitude], 14, { duration: 1 });
       }
     }
-  }, [activeBarangayFilter, getHinunanganBounds, activeBarangayMetrics]);
+  }, [authorizedBarangayName, allBarangayMetrics]);
 
-  // ---------------------------------------------------------------------------------
-  // 5. RENDER INDIVIDUAL BARANGAY BOUNDARIES (Polygons with Red Dotted Outline)
-  // ---------------------------------------------------------------------------------
+  // 2. Render Barangay Cadastral Boundaries
   useEffect(() => {
-    const layer = boundariesLayerGroupRef.current;
-    if (!layer) return;
-    layer.clearLayers();
-    polygonRefsMap.current = {};
+    if (!boundariesLayerGroupRef.current || !labelsLayerGroupRef.current) return;
+    boundariesLayerGroupRef.current.clearLayers();
+    labelsLayerGroupRef.current.clearLayers();
 
     if (!showBoundaries) return;
 
-    activeBarangayMetrics.forEach(b => {
-      if (!b.boundaryPolygon || b.boundaryPolygon.length < 3) return;
+    const storedBgys = getStoredBarangayBoundaries();
 
-      const isSelected = activeBarangayFilter.toLowerCase() === b.name.toLowerCase();
-      const isHovered = hoveredBarangay === b.name;
-
-      // Style determination - Clean connected official municipal boundary
-      let strokeColor = '#dc2626';
-      let weight = 1.6;
-      let dashArray = '';
-      let fillOpacity = boundaryOpacity;
-      let fillColor = '#ef4444';
-
-      if (isSelected) {
-        strokeColor = '#b91c1c';
-        weight = 3.5;
-        dashArray = '';
-        fillOpacity = Math.min(0.4, boundaryOpacity + 0.22);
-        fillColor = '#dc2626';
-      } else if (isHovered) {
-        strokeColor = '#991b1b';
-        weight = 2.8;
-        dashArray = '';
-        fillOpacity = Math.min(0.3, boundaryOpacity + 0.14);
-      } else if (activeBarangayFilter !== 'all') {
-        // Less emphasized when another is selected
-        strokeColor = '#f87171';
-        weight = 1.2;
-        dashArray = '';
-        fillOpacity = Math.max(0.03, boundaryOpacity * 0.5);
+    HINUNANGAN_BARANGAYS.forEach(b => {
+      // Focal Person: Render ONLY assigned barangay boundary
+      if (authorizedBarangayName && b.name.toLowerCase() !== authorizedBarangayName.toLowerCase()) {
+        return;
       }
 
-      const latLngs = b.boundaryPolygon.map(p => L.latLng(p[0], p[1]));
-      const polygon = L.polygon(latLngs, {
+      const polygonCoords = storedBgys[b.name] || HINUNANGAN_BARANGAY_BOUNDARIES[b.name];
+      if (!polygonCoords || polygonCoords.length < 3) return;
+
+      const metric = allBarangayMetrics.find(m => m.barangayName.toLowerCase() === b.name.toLowerCase());
+      const riskLevel = metric?.riskLevel || b.defaultRiskLevel;
+      const strokeColor = riskLevel === 'red' ? '#dc2626' : riskLevel === 'yellow' ? '#d97706' : '#059669';
+
+      const poly = L.polygon(polygonCoords, {
         color: strokeColor,
-        weight: weight,
-        dashArray: dashArray,
-        fillColor: fillColor,
-        fillOpacity: fillOpacity,
-        smoothFactor: 1,
+        weight: 1.5,
+        opacity: 0.9,
+        fillColor: strokeColor,
+        fillOpacity: boundaryOpacity,
       });
 
-      // Hover and Click events
-      polygon.on('mouseover', () => {
-        setHoveredBarangay(b.name);
-      });
+      poly.on('click', () => handleBarangayClick(b.name));
+      poly.addTo(boundariesLayerGroupRef.current!);
 
-      polygon.on('mouseout', () => {
-        setHoveredBarangay(null);
-      });
-
-      polygon.on('click', (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e);
-        setActiveBarangayFilter(b.name);
-        setSelectedBarangayData(b);
-      });
-
-      // Tooltip for quick inspection
-      polygon.bindTooltip(
-        `
-        <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;padding:2px 4px;">
-          <strong style="color:#111827;font-size:13px;">Brgy. ${b.name}</strong>
-          ${b.isUrban ? '<span style="font-size:10px;color:#047857;margin-left:4px;font-weight:bold;">[Urban]</span>' : ''}
-          <div style="font-size:11px;color:#4b5563;margin-top:2px;">
-            Total Swine: <strong>${b.totalSwine}</strong> | Ready: <strong>${b.readyToSell}</strong>
-          </div>
-          <div style="font-size:10px;color:#6b7280;">Area: ~${b.areaHectares} ha (Perimeter: ${b.perimeterKm} km)</div>
-        </div>
-      `,
-        { sticky: true, direction: 'top', opacity: 0.95 }
-      );
-
-      polygon.addTo(layer);
-      polygonRefsMap.current[b.name] = polygon;
-    });
-  }, [activeBarangayMetrics, showBoundaries, activeBarangayFilter, hoveredBarangay, boundaryOpacity]);
-
-  // ---------------------------------------------------------------------------------
-  // 5b. RENDER ENTIRE MUNICIPAL PERIMETER (MultiPolygon from Real PSGC 086403000 Data)
-  // ---------------------------------------------------------------------------------
-  useEffect(() => {
-    const layer = muniBoundaryLayerGroupRef.current;
-    if (!layer) return;
-    layer.clearLayers();
-
-    if (!showMunicipalBoundary) return;
-
-    const rings = getStoredMunicipalRings();
-    rings.forEach((ring, idx) => {
-      const ringLatLngs = ring.map(p => L.latLng(p[0], p[1]));
-      const muniPoly = L.polygon(ringLatLngs, {
-        color: '#0284c7',
-        weight: 3.5,
-        dashArray: '6, 6',
-        fillColor: '#0284c7',
-        fillOpacity: 0.03,
-        smoothFactor: 1,
-      });
-
-      muniPoly.bindTooltip(
-        `
-        <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;padding:3px 5px;">
-          <strong style="color:#0284c7;font-size:13px;">${HINUNANGAN_MUNICIPAL_METADATA.fullName}</strong>
-          <div style="font-size:11px;color:#475569;margin-top:2px;">
-            Area: <strong>168.09 km²</strong> • Perimeter: <strong>80.65 km</strong><br/>
-            Ring ${idx + 1} of 3 (Official PSA PSGC 086403000)
-          </div>
-        </div>
-        `,
-        { sticky: true }
-      );
-
-      muniPoly.addTo(layer);
-    });
-  }, [showMunicipalBoundary]);
-
-  // ---------------------------------------------------------------------------------
-  // 6. RENDER BARANGAY LABELS (Clean, Zoom-responsive, Non-overlapping)
-  // ---------------------------------------------------------------------------------
-  useEffect(() => {
-    const layer = labelsLayerGroupRef.current;
-    if (!layer) return;
-    layer.clearLayers();
-
-    if (!showLabels) return;
-
-    activeBarangayMetrics.forEach(b => {
-      // Zoom-filtering to avoid visual clutter
-      if (currentZoom < 12 && !b.isUrban && b.name !== 'San Pedro Island' && b.name !== 'San Pablo Island') {
-        return; // Hide small rural labels on low zoom
+      // Label
+      if (showLabels) {
+        const labelMarker = L.marker([b.latitude, b.longitude], {
+          icon: createBarangayTextLabel(b.name, b.isUrban, riskLevel, false),
+          interactive: true,
+        });
+        labelMarker.on('click', () => handleBarangayClick(b.name));
+        labelMarker.addTo(labelsLayerGroupRef.current!);
       }
-
-      const isSelected = activeBarangayFilter.toLowerCase() === b.name.toLowerCase();
-
-      const labelMarker = L.marker([b.latitude, b.longitude], {
-        icon: createBarangayTextLabel(b.name, !!b.isUrban, b.riskLevel, isSelected),
-        zIndexOffset: isSelected ? 400 : 150,
-      });
-
-      labelMarker.on('click', (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e);
-        setActiveBarangayFilter(b.name);
-        setSelectedBarangayData(b);
-      });
-
-      labelMarker.addTo(layer);
     });
-  }, [activeBarangayMetrics, showLabels, currentZoom, activeBarangayFilter]);
+  }, [showBoundaries, showLabels, boundaryOpacity, authorizedBarangayName, allBarangayMetrics, handleBarangayClick]);
 
-  // ---------------------------------------------------------------------------------
-  // 7. RENDER SWINE PINS (3D Red Pin with Circular Center Cutout & Gold Star)
-  // ---------------------------------------------------------------------------------
+  // 3. Render Heatmap Layer
   useEffect(() => {
-    const layer = pinsLayerGroupRef.current;
-    if (!layer) return;
-    layer.clearLayers();
+    if (!heatmapLayerGroupRef.current) return;
+    heatmapLayerGroupRef.current.clearLayers();
 
-    if (!showPins) return;
+    if (!showHeatmap) return;
 
-    let filteredSwine = swineList.filter(s => !s.isArchived);
-    if (activeBarangayFilter !== 'all') {
-      filteredSwine = filteredSwine.filter(
-        s => (s.barangay || '').toLowerCase() === (activeBarangayFilter || '').toLowerCase()
-      );
-    }
-    if (filterReadyOnly) {
-      filteredSwine = filteredSwine.filter(s => s.readyToSell || s.status === 'ready_to_sell');
-    }
+    heatmapData.points.forEach(pt => {
+      const color = getHeatmapColor(pt.intensity, heatmapOpacity);
+      const radius = Math.max(120, Math.min(650, pt.intensity * 600));
 
-    filteredSwine.forEach(swine => {
-      let lat = swine.latitude;
-      let lng = swine.longitude;
+      const circle = L.circle([pt.lat, pt.lng], {
+        radius,
+        fillColor: color,
+        fillOpacity: heatmapOpacity,
+        color: '#ffffff',
+        weight: 0.75,
+        opacity: 0.3,
+      });
+      circle.addTo(heatmapLayerGroupRef.current!);
+    });
+  }, [showHeatmap, heatmapData, heatmapOpacity]);
 
-      if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
-        const bgGeo = HINUNANGAN_BARANGAYS.find(
-          b => b.name.toLowerCase() === (swine.barangay || '').toLowerCase()
-        );
-        lat = bgGeo ? bgGeo.latitude : 10.397795;
-        lng = bgGeo ? bgGeo.longitude : 125.199364;
-      }
+  // 4. Render Swine Markers with "View Swine Record" Button
+  useEffect(() => {
+    if (!swinePinsLayerGroupRef.current) return;
+    swinePinsLayerGroupRef.current.clearLayers();
 
-      const marker = L.marker([lat, lng], {
-        icon: createCustomPinIcon(swine.readyToSell || swine.status === 'ready_to_sell', swine.id),
-        zIndexOffset: 300,
+    if (!showSwinePins) return;
+
+    swineWithGps.forEach(swine => {
+      const isReady = swine.readyToSell || swine.status === 'ready_to_sell';
+      const marker = L.marker([swine.latitude, swine.longitude], {
+        icon: createSwineMarkerIcon(isReady, swine.pigIdTag || swine.earTagNo || ''),
       });
 
-      const popupCard = document.createElement('div');
-      popupCard.style.fontFamily = 'system-ui, -apple-system, sans-serif';
-      popupCard.style.fontSize = '12px';
-      popupCard.style.minWidth = '230px';
+      // Swine Info Popup
+      const weightDisplay = swine.actualWeightKg
+        ? `${swine.actualWeightKg} kg (Actual)`
+        : swine.estimatedWeightKg || 'N/A';
+      const statusBadge = isReady
+        ? '<span style="background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 10px;">READY FOR SALE</span>'
+        : `<span style="background: #d1fae5; color: #065f46; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 10px; text-transform: uppercase;">${swine.status}</span>`;
 
-      popupCard.innerHTML = `
-        <div style="border-radius: 8px; overflow: hidden;">
-          ${
-            swine.photoUrl
-              ? `<img src="${swine.photoUrl}" style="width: 100%; height: 105px; object-fit: cover; border-radius: 6px; margin-bottom: 6px;" alt="Swine photo" />`
-              : ''
-          }
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-            <span style="font-weight: 800; font-size: 13px; color: #065f46;">${swine.earTagNo}</span>
-            <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: ${
-              swine.readyToSell ? '#fef3c7' : '#dcfce7'
-            }; color: ${swine.readyToSell ? '#92400e' : '#166534'}; font-weight: 800;">
-              ${swine.readyToSell ? 'READY TO SELL' : (swine.status || 'ACTIVE').toUpperCase()}
-            </span>
+      const popupHtml = `
+        <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 220px; color: #18181b;">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e4e4e7; padding-bottom: 6px; margin-bottom: 8px;">
+            <strong style="color: #065f46; font-size: 13px;">🐖 ${swine.pigIdTag || swine.earTagNo}</strong>
+            ${statusBadge}
           </div>
-          <div style="color: #374151; font-size: 11px; line-height: 1.45;">
-            <div><strong>Farmer:</strong> ${swine.farmerName || swine.ownerName || '—'}</div>
-            <div><strong>Barangay:</strong> Brgy. ${swine.barangay}</div>
-            <div><strong>Breed:</strong> ${swine.breed || 'Standard'}</div>
-            <div><strong>Weight:</strong> ${swine.weightKg} kg ${swine.ageWeeks ? `(${swine.ageWeeks} wks)` : ''}</div>
-            ${swine.estimatedPricePhp ? `<div><strong>Est. Price:</strong> ₱${swine.estimatedPricePhp.toLocaleString()}</div>` : ''}
-            <div style="color: #9ca3af; font-size: 10px; margin-top: 2px;"><strong>GPS:</strong> ${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
+          <div style="font-size: 11px; line-height: 1.5; margin-bottom: 10px;">
+            <div><span style="color: #71717a;">Farmer:</span> <strong>${swine.farmerName}</strong></div>
+            <div><span style="color: #71717a;">Barangay:</span> <strong>${swine.barangay}</strong></div>
+            <div><span style="color: #71717a;">Swine Type:</span> <strong style="text-transform: capitalize;">${swine.swineType}</strong></div>
+            <div><span style="color: #71717a;">Age:</span> <strong>${swine.ageDays || 0} days</strong></div>
+            <div><span style="color: #71717a;">Weight:</span> <strong>${weightDisplay}</strong></div>
+          </div>
+          <button id="btn-view-swine-${swine.id}" style="width: 100%; background: #047857; color: white; border: none; border-radius: 8px; padding: 6px 10px; font-size: 11px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
+            View Swine Record
+          </button>
+        </div>
+      `;
+
+      marker.bindPopup(popupHtml);
+      marker.on('popupopen', () => {
+        const btn = document.getElementById(`btn-view-swine-${swine.id}`);
+        if (btn && onViewSwineRecord) {
+          btn.onclick = () => {
+            onViewSwineRecord(swine);
+          };
+        }
+      });
+
+      marker.on('click', () => {
+        if (onSelectSwine) onSelectSwine(swine);
+      });
+
+      marker.addTo(swinePinsLayerGroupRef.current!);
+    });
+  }, [showSwinePins, swineWithGps, onViewSwineRecord, onSelectSwine]);
+
+  // 5. Render Farmer Markers
+  useEffect(() => {
+    if (!farmerPinsLayerGroupRef.current) return;
+    farmerPinsLayerGroupRef.current.clearLayers();
+
+    if (!showFarmerPins) return;
+
+    farmerMarkers.forEach(farmer => {
+      const marker = L.marker([farmer.lat + 0.0002, farmer.lng + 0.0002], {
+        icon: createFarmerMarkerIcon(farmer.farmerName),
+      });
+
+      const popupHtml = `
+        <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 200px; color: #18181b;">
+          <div style="border-bottom: 1px solid #e4e4e7; padding-bottom: 4px; margin-bottom: 6px;">
+            <strong style="color: #2563eb; font-size: 13px;">👤 Registered Swine Farmer</strong>
+          </div>
+          <div style="font-size: 11px; line-height: 1.5;">
+            <div><span style="color: #71717a;">Name:</span> <strong>${farmer.farmerName}</strong></div>
+            <div><span style="color: #71717a;">Contact:</span> <strong>${farmer.contact}</strong></div>
+            <div><span style="color: #71717a;">Barangay:</span> <strong>${farmer.barangay}</strong></div>
+            <div><span style="color: #71717a;">Total Swine:</span> <strong style="color: #047857;">${farmer.swineCount} heads</strong></div>
           </div>
         </div>
       `;
 
-      if (onSelectSwine) {
-        const btn = document.createElement('button');
-        btn.innerText = 'View Swine Record Details';
-        btn.style.cssText =
-          'margin-top: 8px; width: 100%; padding: 5px 8px; background: #059669; color: white; border: none; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: background 0.15s;';
-        btn.onclick = () => onSelectSwine(swine);
-        popupCard.appendChild(btn);
-      }
-
-      marker.bindPopup(popupCard);
-      marker.addTo(layer);
+      marker.bindPopup(popupHtml);
+      marker.addTo(farmerPinsLayerGroupRef.current!);
     });
-  }, [swineList, showPins, activeBarangayFilter, filterReadyOnly, onSelectSwine]);
+  }, [showFarmerPins, farmerMarkers]);
 
-  // ---------------------------------------------------------------------------------
-  // 8. RENDER HEATMAP LAYER (Independent Swine Herd Density)
-  // ---------------------------------------------------------------------------------
+  // 6. Target Swine Focus when targetSwineId is passed
   useEffect(() => {
-    const layer = heatmapLayerGroupRef.current;
-    if (!layer) return;
-    layer.clearLayers();
+    if (!targetSwineId || !mapInstanceRef.current) return;
+    const target = swineList.find(s => s.id === targetSwineId || s.pigIdTag === targetSwineId);
+    if (!target) return;
 
-    if (!showHeatmap) return;
-
-    activeBarangayMetrics.forEach(b => {
-      if (b.totalSwine === 0) return;
-
-      let radius = 450;
-      let fillColor = '#10b981';
-      let strokeColor = '#059669';
-      let densityLabel = 'Low Concentration (1–5 heads)';
-
-      if (b.totalSwine >= 16) {
-        radius = 950;
-        fillColor = '#ef4444';
-        strokeColor = '#b91c1c';
-        densityLabel = 'High Concentration (16+ heads)';
-      } else if (b.totalSwine >= 6) {
-        radius = 650;
-        fillColor = '#f59e0b';
-        strokeColor = '#d97706';
-        densityLabel = 'Medium Concentration (6–15 heads)';
-      }
-
-      const heatCircle = L.circle([b.latitude, b.longitude], {
-        color: strokeColor,
-        fillColor: fillColor,
-        fillOpacity: 0.45,
-        radius: radius,
-        weight: 1.5,
-      });
-
-      heatCircle.bindPopup(`
-        <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;min-width:180px;">
-          <strong style="color:#111827;font-size:13px;">Brgy. ${b.name} Density Heatmap</strong>
-          <div style="margin:4px 0;padding:2px 6px;border-radius:4px;display:inline-block;font-size:10px;font-weight:bold;background:${fillColor}25;color:${strokeColor};">
-            ${densityLabel}
-          </div>
-          <div style="color:#4b5563;font-size:11px;">
-            <div>Registered Swine: <strong>${b.totalSwine} heads</strong></div>
-            <div>Ready for Market: <strong>${b.readyToSell} heads</strong></div>
-          </div>
-        </div>
-      `);
-
-      heatCircle.addTo(layer);
-    });
-  }, [activeBarangayMetrics, showHeatmap]);
-
-  // ---------------------------------------------------------------------------------
-  // 9. RENDER ASF BIOSECURITY ZONES (Independent Layer)
-  // ---------------------------------------------------------------------------------
-  useEffect(() => {
-    const layer = asfZonesLayerGroupRef.current;
-    if (!layer) return;
-    layer.clearLayers();
-
-    if (!showAsfZones) return;
-
-    activeBarangayMetrics.forEach(b => {
-      const zoneColor = b.riskLevel === 'green' ? '#16a34a' : b.riskLevel === 'yellow' ? '#eab308' : '#dc2626';
-      const zoneLabel = b.riskLevel === 'green' ? 'Clean Zone (Safe)' : b.riskLevel === 'yellow' ? 'Surveillance / Buffer' : 'Infected / Quarantine';
-
-      const zoneCircle = L.circle([b.latitude, b.longitude], {
-        color: zoneColor,
-        fillColor: zoneColor,
-        fillOpacity: 0.2,
-        radius: 700,
-        weight: 2,
-        dashArray: '3, 3',
-      });
-
-      zoneCircle.bindPopup(`
-        <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;min-width:190px;">
-          <div style="font-weight:bold;font-size:13px;color:#111827;border-bottom:1px solid #e5e7eb;padding-bottom:3px;margin-bottom:4px;">
-            Brgy. ${b.name} ASF Status
-          </div>
-          <div style="color:${zoneColor};font-weight:bold;font-size:11px;margin-bottom:4px;text-transform:uppercase;">
-            ● ${zoneLabel}
-          </div>
-          <div style="color:#4b5563;font-size:11px;line-height:1.4;">
-            <div>Swine in Zone: <strong>${b.totalSwine}</strong></div>
-            <div>Focal Officer: ${b.focalPerson}</div>
-          </div>
-        </div>
-      `);
-
-      zoneCircle.addTo(layer);
-    });
-  }, [activeBarangayMetrics, showAsfZones]);
-
-  // ---------------------------------------------------------------------------------
-  // 10. RENDER LOCATION PICKER PIN (When active)
-  // ---------------------------------------------------------------------------------
-  useEffect(() => {
-    const layer = pickerLayerGroupRef.current;
-    if (!layer) return;
-    layer.clearLayers();
-
-    if (!pickedPoint) return;
-
-    const pickerMarker = L.marker(pickedPoint, {
-      icon: L.divIcon({
-        className: 'picked-pin',
-        html: `
-          <div style="background: #dc2626; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2.5px solid white; box-shadow: 0 3px 8px rgba(0,0,0,0.5); font-size: 14px; animation: bounce 1s infinite;">
-            📍
-          </div>
-        `,
-        iconSize: [28, 28],
-        iconAnchor: [14, 28],
-      }),
-      zIndexOffset: 600,
-    });
-
-    const closest = findClosestBarangay(pickedPoint[0], pickedPoint[1]);
-    pickerMarker
-      .bindPopup(`
-        <div style="font-family: system-ui, -apple-system, sans-serif; font-size: 12px;">
-          <strong style="color: #dc2626;">Selected Swine Pen GPS</strong>
-          <div style="color: #4b5563; margin-top: 2px;">Assigned to: <strong>Brgy. ${closest.name}</strong></div>
-          <div style="font-size: 10px; color: #9ca3af;">${pickedPoint[0].toFixed(6)}, ${pickedPoint[1].toFixed(6)}</div>
-        </div>
-      `)
-      .addTo(layer);
-  }, [pickedPoint]);
-
-  // 11. Live GPS Toggle
-  const toggleLiveGps = () => {
-    if (!navigator.geolocation) {
-      setGpsNotification('Geolocation is not supported by your browser.');
+    if (authorizedBarangayName && (target.barangay || '').toLowerCase() !== authorizedBarangayName.toLowerCase()) {
+      setAccessWarning(`Access restricted. Swine ${target.pigIdTag || target.id} belongs to Barangay ${target.barangay}. You are assigned to Barangay ${authorizedBarangayName}.`);
       return;
     }
 
-    if (gpsActive) {
-      setGpsActive(false);
-      if (userMarkerRef.current) userMarkerRef.current.remove();
-      if (userCircleRef.current) userCircleRef.current.remove();
-      return;
+    if (target.latitude && target.longitude && target.latitude > 0 && target.longitude > 0) {
+      mapInstanceRef.current.flyTo([target.latitude, target.longitude], 16, { duration: 1.2 });
+    } else {
+      const bg = HINUNANGAN_BARANGAYS.find(b => b.name.toLowerCase() === (target.barangay || '').toLowerCase());
+      if (bg) {
+        mapInstanceRef.current.flyTo([bg.latitude, bg.longitude], 14, { duration: 1 });
+      }
+    }
+  }, [targetSwineId, swineList, authorizedBarangayName]);
+
+  // Search Results
+  const searchResults = useMemo(() => {
+    if (!searchTerm.trim()) return [];
+    const term = searchTerm.toLowerCase();
+
+    // If focal person, restrict search to assigned barangay
+    if (authorizedBarangayName) {
+      const pigs = filteredSwineRecords.filter(
+        s =>
+          (s.pigIdTag && s.pigIdTag.toLowerCase().includes(term)) ||
+          (s.farmerName && s.farmerName.toLowerCase().includes(term))
+      );
+      return pigs.slice(0, 5).map(p => ({
+        type: 'swine' as const,
+        label: `${p.pigIdTag || p.earTagNo} - ${p.farmerName} (${p.barangay})`,
+        data: p,
+      }));
     }
 
-    setGpsActive(true);
-    setGpsNotification(null);
-
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const { latitude, longitude, accuracy } = pos.coords;
-        const map = mapInstanceRef.current;
-        if (map) {
-          map.flyTo([latitude, longitude], 15, { duration: 1.5 });
-
-          if (userMarkerRef.current) userMarkerRef.current.remove();
-          if (userCircleRef.current) userCircleRef.current.remove();
-
-          userCircleRef.current = L.circle([latitude, longitude], {
-            radius: accuracy,
-            color: '#3b82f6',
-            fillColor: '#60a5fa',
-            fillOpacity: 0.15,
-            weight: 1.5,
-          }).addTo(map);
-
-          userMarkerRef.current = L.marker([latitude, longitude], {
-            icon: userGpsIcon,
-            zIndexOffset: 1000,
-          })
-            .bindPopup(`
-              <div style="font-family: system-ui, -apple-system, sans-serif; font-size: 12px;">
-                <strong style="color: #2563eb;">Your Live GPS Location</strong><br/>
-                Accuracy: ~${Math.round(accuracy)} meters<br/>
-                <span style="font-size: 10px; color: #6b7280;">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</span>
-              </div>
-            `)
-            .addTo(map);
-        }
-      },
-      err => {
-        console.warn('GPS position error:', err);
-        setGpsActive(false);
-        setGpsNotification('Could not acquire GPS position. Check location permissions.');
-        setTimeout(() => setGpsNotification(null), 5000);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
+    // Admin search: Barangays + Swine
+    const matchedBg = HINUNANGAN_BARANGAYS.filter(b => b.name.toLowerCase().includes(term));
+    const matchedSwine = swineList.filter(
+      s =>
+        (s.pigIdTag && s.pigIdTag.toLowerCase().includes(term)) ||
+        (s.farmerName && s.farmerName.toLowerCase().includes(term))
     );
-  };
 
-  // Zoom controls
-  const handleZoomIn = () => mapInstanceRef.current?.zoomIn();
-  const handleZoomOut = () => mapInstanceRef.current?.zoomOut();
-
-  const handleResetMap = () => {
-    setActiveBarangayFilter('all');
-    setSelectedBarangayData(null);
-    const bounds = getHinunanganBounds();
-    mapInstanceRef.current?.fitBounds(bounds, { padding: [35, 35], maxZoom: 14 });
-  };
+    const results: any[] = [];
+    matchedBg.forEach(b => results.push({ type: 'barangay', label: `Brgy. ${b.name}`, data: b }));
+    matchedSwine.slice(0, 5).forEach(s =>
+      results.push({
+        type: 'swine',
+        label: `${s.pigIdTag || s.earTagNo} - ${s.farmerName} (${s.barangay})`,
+        data: s,
+      })
+    );
+    return results;
+  }, [searchTerm, authorizedBarangayName, filteredSwineRecords, swineList]);
 
   return (
-    <div className="relative w-full rounded-2xl overflow-hidden border border-stone-200 shadow-md bg-stone-100 flex flex-col h-[650px]">
-      {/* Top Map Control Bar */}
-      <div className="bg-white/95 backdrop-blur-md px-3 py-2 border-b border-stone-200 flex flex-wrap items-center justify-between gap-2 z-20 text-xs">
-        {/* Left: Branding & Basemaps */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="font-bold text-emerald-950 flex items-center gap-1.5 mr-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
-            <MapPin className="w-4 h-4 text-emerald-700" />
-            <span className="font-black tracking-tight text-sm text-stone-900">Hinunangan GIS</span>
+    <div className="relative w-full h-[640px] md:h-[720px] rounded-2xl overflow-hidden shadow-xl border border-stone-200 bg-stone-900 select-none">
+      {/* Top Warning Banner for Access Control */}
+      {accessWarning && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 bg-rose-600/95 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 backdrop-blur-md border border-rose-300 animate-bounce text-sm font-semibold">
+          <AlertTriangle className="w-5 h-5 text-amber-200 flex-shrink-0" />
+          <span>{accessWarning}</span>
+          <button onClick={() => setAccessWarning(null)} className="ml-2 hover:opacity-80 p-0.5 rounded cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Role / Assigned Barangay Indicator Badge */}
+      <div className="absolute top-3 left-3 z-30 flex items-center gap-2">
+        <div className="bg-stone-900/90 text-white px-3 py-1.5 rounded-xl border border-stone-700 shadow-md backdrop-blur-md flex items-center gap-2 text-xs">
+          {isFocal ? (
+            <>
+              <Lock className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-stone-400">Focal Account:</span>
+              <span className="font-bold text-emerald-400">Brgy. {authorizedBarangayName}</span>
+              <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30">
+                RESTRICTED ACCESS
+              </span>
+            </>
+          ) : (
+            <>
+              <Shield className="w-3.5 h-3.5 text-blue-400" />
+              <span className="text-stone-400">Admin Mode:</span>
+              <span className="font-bold text-white">Full Municipality Access (40 Barangays)</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Top Right Controls & Search */}
+      <div className="absolute top-3 right-3 z-30 flex items-center gap-2">
+        {/* Search Bar */}
+        <div className="relative">
+          <div className="flex items-center bg-stone-900/90 border border-stone-700 rounded-xl px-2.5 py-1.5 shadow-md backdrop-blur-md text-xs text-white">
+            <Search className="w-3.5 h-3.5 text-stone-400 mr-1.5" />
+            <input
+              type="text"
+              placeholder={isFocal ? `Search Brgy. ${authorizedBarangayName}...` : 'Search barangay or swine...'}
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="bg-transparent text-white placeholder-stone-400 outline-none w-36 md:w-56 text-xs"
+            />
+            {searchTerm && (
+              <button onClick={() => setSearchTerm('')} className="text-stone-400 hover:text-white">
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
 
-          {/* Switch to Google Maps Engine Button */}
+          {/* Search Results Dropdown */}
+          {searchResults.length > 0 && (
+            <div className="absolute top-full mt-1 right-0 w-64 bg-stone-900/95 border border-stone-700 rounded-xl shadow-2xl p-1.5 z-40 backdrop-blur-md">
+              {searchResults.map((res, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    if (res.type === 'barangay') {
+                      handleBarangayClick(res.data.name);
+                    } else {
+                      if (res.data.latitude && res.data.longitude && mapInstanceRef.current) {
+                        mapInstanceRef.current.flyTo([res.data.latitude, res.data.longitude], 16);
+                      }
+                    }
+                    setSearchTerm('');
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-stone-800 text-xs text-stone-200 flex items-center justify-between transition cursor-pointer"
+                >
+                  <span className="truncate">{res.label}</span>
+                  <ChevronRight className="w-3.5 h-3.5 text-stone-500" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Filters Toggle Button */}
+        <button
+          onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
+          className={`px-3 py-1.5 rounded-xl border shadow-md backdrop-blur-md flex items-center gap-1.5 text-xs font-semibold transition cursor-pointer ${
+            isFilterPanelOpen
+              ? 'bg-emerald-600 text-white border-emerald-500'
+              : 'bg-stone-900/90 text-stone-200 border-stone-700 hover:bg-stone-800'
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span>Filters</span>
+        </button>
+
+        {/* Map Type Toggle */}
+        <div className="hidden sm:flex bg-stone-900/90 border border-stone-700 rounded-xl p-0.5 shadow-md backdrop-blur-md text-xs">
+          <button
+            onClick={() => setMapMode('street')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
+              mapMode === 'street' ? 'bg-emerald-600 text-white' : 'text-stone-300 hover:text-white'
+            }`}
+          >
+            Street
+          </button>
+          <button
+            onClick={() => setMapMode('satellite')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
+              mapMode === 'satellite' ? 'bg-emerald-600 text-white' : 'text-stone-300 hover:text-white'
+            }`}
+          >
+            Satellite
+          </button>
+          <button
+            onClick={() => setMapMode('terrain')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
+              mapMode === 'terrain' ? 'bg-emerald-600 text-white' : 'text-stone-300 hover:text-white'
+            }`}
+          >
+            Terrain
+          </button>
+        </div>
+
+        {/* Switch to Google Map Button */}
+        {onSwitchToGoogle && (
           <button
             onClick={onSwitchToGoogle}
-            className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded-lg text-xs shadow-2xs flex items-center gap-1.5 transition cursor-pointer"
-            title="Switch to Google Maps Platform Engine"
+            className="bg-stone-900/90 hover:bg-stone-800 text-stone-300 border border-stone-700 px-2.5 py-1.5 rounded-xl shadow-md backdrop-blur-md text-xs font-medium flex items-center gap-1 cursor-pointer transition"
+            title="Switch to Google Maps Platform"
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse"></span>
-            Switch to Google Maps
+            <MapPin className="w-3.5 h-3.5 text-red-400" />
+            <span className="hidden md:inline">Google Maps</span>
           </button>
+        )}
+      </div>
 
-          {/* Map Basemap Selector */}
-          <div className="flex rounded-lg bg-stone-100 p-0.5 border border-stone-200 shadow-2xs">
-            <button
-              onClick={() => setMapMode('street')}
-              className={`px-2 py-1 rounded-md font-medium cursor-pointer transition ${
-                mapMode === 'street' ? 'bg-white shadow-2xs text-emerald-950 font-bold' : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              Street
-            </button>
-            <button
-              onClick={() => setMapMode('satellite')}
-              className={`px-2 py-1 rounded-md font-medium cursor-pointer transition ${
-                mapMode === 'satellite' ? 'bg-white shadow-2xs text-emerald-950 font-bold' : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              Satellite
-            </button>
-            <button
-              onClick={() => setMapMode('terrain')}
-              className={`px-2 py-1 rounded-md font-medium cursor-pointer transition ${
-                mapMode === 'terrain' ? 'bg-white shadow-2xs text-emerald-950 font-bold' : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              Terrain
+      {/* Filter & Layer Drawer Panel */}
+      {isFilterPanelOpen && (
+        <div className="absolute top-14 right-3 z-40 w-80 bg-stone-900/95 border border-stone-700 rounded-2xl p-4 shadow-2xl backdrop-blur-md text-white text-xs space-y-3.5 max-h-[80vh] overflow-y-auto">
+          <div className="flex items-center justify-between pb-2 border-b border-stone-800">
+            <h3 className="font-bold text-sm text-emerald-400 flex items-center gap-1.5">
+              <Layers className="w-4 h-4" /> GIS Layer & Record Filters
+            </h3>
+            <button onClick={() => setIsFilterPanelOpen(false)} className="text-stone-400 hover:text-white">
+              <X className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Map Layers Dropdown Button */}
-          <div className="relative">
-            <button
-              onClick={() => setIsLayersPanelOpen(!isLayersPanelOpen)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition cursor-pointer shadow-2xs ${
-                isLayersPanelOpen ? 'bg-emerald-800 text-white border-emerald-900' : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
-              }`}
+          {/* Barangay Filter (Admin Only; Locked for Focal Person) */}
+          <div>
+            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">
+              Barangay Scope
+            </label>
+            {isFocal ? (
+              <div className="bg-stone-800/80 border border-amber-500/40 rounded-xl px-3 py-2 text-stone-300 flex items-center justify-between">
+                <span>{authorizedBarangayName}</span>
+                <span className="text-[10px] text-amber-400 font-semibold uppercase flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> Locked to Assigned
+                </span>
+              </div>
+            ) : (
+              <select
+                value={selectedBarangayFilter}
+                onChange={e => setSelectedBarangayFilter(e.target.value)}
+                className="w-full bg-stone-800 border border-stone-700 rounded-xl px-3 py-2 text-white outline-none cursor-pointer"
+              >
+                <option value="all">All 40 Hinunangan Barangays</option>
+                {HINUNANGAN_BARANGAYS.map(b => (
+                  <option key={b.id} value={b.name}>
+                    Brgy. {b.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* Swine Type Filter */}
+          <div>
+            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">
+              Swine Type
+            </label>
+            <select
+              value={selectedSwineType}
+              onChange={e => setSelectedSwineType(e.target.value)}
+              className="w-full bg-stone-800 border border-stone-700 rounded-xl px-3 py-2 text-white outline-none cursor-pointer"
             >
-              <Layers className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Map Layers</span>
-              <ChevronDown className="w-3 h-3 opacity-70" />
-            </button>
+              <option value="all">All Swine Types</option>
+              <option value="boar">Breeding Boars</option>
+              <option value="sow">Breeding Sows</option>
+              <option value="piglet">Piglets</option>
+              <option value="grower">Growers</option>
+              <option value="finisher">Fatteners / Finishers</option>
+            </select>
+          </div>
 
-            {/* Floating Layer Control Menu */}
-            {isLayersPanelOpen && (
-              <div className="absolute top-full left-0 mt-1.5 w-64 bg-white/98 backdrop-blur-md rounded-xl shadow-xl border border-stone-200 p-3 z-50 text-xs space-y-2.5 animate-fade-in">
-                <div className="flex items-center justify-between pb-1.5 border-b border-stone-200">
-                  <span className="font-extrabold text-stone-900 flex items-center gap-1.5">
-                    <Sliders className="w-3.5 h-3.5 text-emerald-600" /> Layer Management
-                  </span>
-                  <button onClick={() => setIsLayersPanelOpen(false)} className="text-stone-400 hover:text-stone-700">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+          {/* Market Status Filter */}
+          <div>
+            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">
+              Market Status
+            </label>
+            <select
+              value={selectedMarketStatus}
+              onChange={e => setSelectedMarketStatus(e.target.value)}
+              className="w-full bg-stone-800 border border-stone-700 rounded-xl px-3 py-2 text-white outline-none cursor-pointer"
+            >
+              <option value="all">All Market Statuses</option>
+              <option value="ready_to_sell">🌟 Ready for Market Sale Only</option>
+              <option value="active">Active / Healthy</option>
+              <option value="sold">Sold</option>
+            </select>
+          </div>
+
+          {/* ASF Zone Filter */}
+          <div>
+            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">
+              ASF Biosafety Zone
+            </label>
+            <select
+              value={selectedAsfZone}
+              onChange={e => setSelectedAsfZone(e.target.value)}
+              className="w-full bg-stone-800 border border-stone-700 rounded-xl px-3 py-2 text-white outline-none cursor-pointer"
+            >
+              <option value="all">All ASF Zones</option>
+              <option value="RED">🔴 Red Zone (Infected / Quarantine)</option>
+              <option value="PINK">🟣 Pink Zone (Buffer)</option>
+              <option value="YELLOW">🟡 Yellow Zone (Surveillance)</option>
+              <option value="GREEN">🟢 Green Zone (Protected / Free)</option>
+            </select>
+          </div>
+
+          {/* Heatmap Controls */}
+          <div className="pt-2 border-t border-stone-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-stone-300 flex items-center gap-1.5">
+                <Flame className="w-4 h-4 text-orange-400" /> Livestock Heatmap
+              </span>
+              <input
+                type="checkbox"
+                checked={showHeatmap}
+                onChange={e => setShowHeatmap(e.target.checked)}
+                className="w-4 h-4 rounded text-emerald-600 cursor-pointer accent-emerald-500"
+              />
+            </div>
+
+            {showHeatmap && (
+              <div className="space-y-2 pl-2 border-l-2 border-orange-500/40 mt-1.5">
+                <div>
+                  <label className="text-[10px] text-stone-400 block mb-1">Heatmap Mode</label>
+                  <select
+                    value={heatmapMode}
+                    onChange={e => setHeatmapMode(e.target.value as HeatmapMode)}
+                    className="w-full bg-stone-800 border border-stone-700 rounded-lg px-2 py-1 text-xs text-stone-200 outline-none"
+                  >
+                    <option value="swine_density">Total Swine Density</option>
+                    <option value="farmer_density">Farmer Density</option>
+                    <option value="ready_to_sell">Ready-to-Sell Swine</option>
+                    <option value="breeding_boar">Breeding Boar Density</option>
+                    <option value="registry_activity">Registry Activity Index</option>
+                  </select>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="flex items-center justify-between cursor-pointer group bg-sky-50 p-1.5 rounded-lg border border-sky-200">
-                    <div>
-                      <span className="text-sky-900 font-bold block">Entire Hinunangan Boundary</span>
-                      <span className="text-[10px] text-sky-600 block">168.09 km² • PSGC 086403000</span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={showMunicipalBoundary}
-                      onChange={e => setShowMunicipalBoundary(e.target.checked)}
-                      className="rounded text-sky-600 focus:ring-sky-500 cursor-pointer w-4 h-4"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between cursor-pointer group">
-                    <span className="text-stone-700 font-semibold group-hover:text-stone-900">Barangay Boundaries</span>
-                    <input
-                      type="checkbox"
-                      checked={showBoundaries}
-                      onChange={e => setShowBoundaries(e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between cursor-pointer group">
-                    <span className="text-stone-700 font-semibold group-hover:text-stone-900">Barangay Names</span>
-                    <input
-                      type="checkbox"
-                      checked={showLabels}
-                      onChange={e => setShowLabels(e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between cursor-pointer group">
-                    <span className="text-stone-700 font-semibold group-hover:text-stone-900">Swine Record Pins</span>
-                    <input
-                      type="checkbox"
-                      checked={showPins}
-                      onChange={e => setShowPins(e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between cursor-pointer group">
-                    <span className="text-stone-700 font-semibold group-hover:text-stone-900">Swine Density Heatmap</span>
-                    <input
-                      type="checkbox"
-                      checked={showHeatmap}
-                      onChange={e => setShowHeatmap(e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
-                    />
-                  </label>
-
-                  <label className="flex items-center justify-between cursor-pointer group">
-                    <span className="text-stone-700 font-semibold group-hover:text-stone-900">ASF Risk Zones</span>
-                    <input
-                      type="checkbox"
-                      checked={showAsfZones}
-                      onChange={e => setShowAsfZones(e.target.checked)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
-                    />
-                  </label>
-                </div>
-
-                {/* Boundary Opacity Slider */}
-                <div className="pt-2 border-t border-stone-200">
-                  <div className="flex items-center justify-between text-[11px] text-stone-600 font-semibold mb-1">
-                    <span>Boundary Fill Opacity</span>
-                    <span className="text-emerald-800 font-bold">{Math.round(boundaryOpacity * 100)}%</span>
+                <div>
+                  <div className="flex justify-between text-[10px] text-stone-400 mb-0.5">
+                    <span>Heatmap Opacity</span>
+                    <span>{Math.round(heatmapOpacity * 100)}%</span>
                   </div>
                   <input
                     type="range"
-                    min="0.04"
-                    max="0.4"
-                    step="0.04"
-                    value={boundaryOpacity}
-                    onChange={e => setBoundaryOpacity(parseFloat(e.target.value))}
-                    className="w-full h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"
+                    min="0.1"
+                    max="0.9"
+                    step="0.05"
+                    value={heatmapOpacity}
+                    onChange={e => setHeatmapOpacity(parseFloat(e.target.value))}
+                    className="w-full accent-orange-500 cursor-pointer"
                   />
                 </div>
               </div>
             )}
           </div>
-        </div>
 
-        {/* Right: Barangay Selector, Ready-to-Sell, Hide Pins, GPS & Reset */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {/* 40 Barangay Dropdown Selector */}
-          <div className="flex items-center gap-1">
-            <select
-              value={activeBarangayFilter}
-              onChange={e => setActiveBarangayFilter(e.target.value)}
-              className="bg-white border border-stone-300 rounded-lg px-2.5 py-1 text-xs text-stone-800 font-bold focus:outline-none focus:ring-2 focus:ring-emerald-600 shadow-2xs cursor-pointer max-w-[200px]"
-            >
-              <option value="all">All Hinunangan Barangays (40)</option>
-              {HINUNANGAN_BARANGAYS.map(b => (
-                <option key={b.id} value={b.name}>
-                  Brgy. {b.name} {b.isUrban ? '(Urban)' : ''}
-                </option>
-              ))}
-            </select>
+          {/* Layer Visibility Toggles */}
+          <div className="pt-2 border-t border-stone-800 space-y-1.5">
+            <label className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block mb-1">
+              Display Layers
+            </label>
+            <label className="flex items-center justify-between text-stone-300 hover:text-white cursor-pointer py-0.5">
+              <span>Barangay Polygons</span>
+              <input
+                type="checkbox"
+                checked={showBoundaries}
+                onChange={e => setShowBoundaries(e.target.checked)}
+                className="w-3.5 h-3.5 rounded accent-emerald-500 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between text-stone-300 hover:text-white cursor-pointer py-0.5">
+              <span>Swine Locations (🐖)</span>
+              <input
+                type="checkbox"
+                checked={showSwinePins}
+                onChange={e => setShowSwinePins(e.target.checked)}
+                className="w-3.5 h-3.5 rounded accent-emerald-500 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between text-stone-300 hover:text-white cursor-pointer py-0.5">
+              <span>Farmer Locations (👤)</span>
+              <input
+                type="checkbox"
+                checked={showFarmerPins}
+                onChange={e => setShowFarmerPins(e.target.checked)}
+                className="w-3.5 h-3.5 rounded accent-emerald-500 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between text-stone-300 hover:text-white cursor-pointer py-0.5">
+              <span>Barangay Labels</span>
+              <input
+                type="checkbox"
+                checked={showLabels}
+                onChange={e => setShowLabels(e.target.checked)}
+                className="w-3.5 h-3.5 rounded accent-emerald-500 cursor-pointer"
+              />
+            </label>
           </div>
-
-          {/* Ready to Sell Toggle */}
-          <button
-            onClick={() => setFilterReadyOnly(!filterReadyOnly)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 border transition cursor-pointer shadow-2xs ${
-              filterReadyOnly
-                ? 'bg-amber-100 text-amber-950 border-amber-400 font-bold ring-1 ring-amber-400'
-                : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
-            }`}
-            title="Filter commercial market-ready swine"
-          >
-            <CheckCircle2 className={`w-3.5 h-3.5 ${filterReadyOnly ? 'text-amber-700' : 'text-stone-400'}`} />
-            <span>Ready to Sell</span>
-          </button>
-
-          {/* Hide / Show Pins Quick Button */}
-          <button
-            onClick={() => setShowPins(!showPins)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition cursor-pointer shadow-2xs ${
-              !showPins
-                ? 'bg-rose-50 text-rose-800 border-rose-300 font-bold ring-1 ring-rose-300'
-                : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
-            }`}
-            title={showPins ? 'Hide swine location pins' : 'Show swine location pins'}
-          >
-            {showPins ? (
-              <>
-                <EyeOff className="w-3.5 h-3.5 text-stone-500" />
-                <span>Hide Pins</span>
-              </>
-            ) : (
-              <>
-                <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Show Pins</span>
-              </>
-            )}
-          </button>
-
-          {/* Live GPS Toggle */}
-          <button
-            onClick={toggleLiveGps}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 border transition cursor-pointer shadow-2xs ${
-              gpsActive ? 'bg-blue-600 text-white border-blue-700 shadow-xs' : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
-            }`}
-            title="Locate device GPS position"
-          >
-            <Navigation className={`w-3.5 h-3.5 ${gpsActive ? 'text-white' : 'text-blue-600'}`} />
-            <span>GPS</span>
-          </button>
-
-          {/* Reset Map Extent */}
-          <button
-            onClick={handleResetMap}
-            className="p-1 rounded-lg bg-white border border-stone-300 text-stone-700 hover:bg-stone-50 shadow-2xs transition cursor-pointer"
-            title="Reset Map View to Full Hinunangan"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* GPS Notification Toast */}
-      {gpsNotification && (
-        <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 bg-amber-50 border border-amber-300 text-amber-900 px-3 py-1.5 rounded-lg shadow-md flex items-center gap-2 text-xs animate-fade-in">
-          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-          <span>{gpsNotification}</span>
-          <button onClick={() => setGpsNotification(null)} className="ml-1 text-amber-700 hover:text-amber-900">
-            <X className="w-3 h-3" />
-          </button>
         </div>
       )}
 
-      {/* Map Canvas */}
-      <div className="relative flex-1 w-full h-full">
-        <div ref={mapContainerRef} className="w-full h-full z-0" />
+      {/* Map Container */}
+      <div ref={mapContainerRef} className="w-full h-full z-10" />
 
-        {/* Floating Zoom Controls (Top Left) */}
-        <div className="absolute top-3 left-3 z-10 flex flex-col rounded-xl overflow-hidden shadow-lg border border-stone-200 bg-white/95 backdrop-blur-md">
-          <button
-            onClick={handleZoomIn}
-            className="p-2 hover:bg-stone-100 text-stone-700 border-b border-stone-200 transition cursor-pointer"
-            title="Zoom In"
-          >
-            <ZoomIn className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleZoomOut}
-            className="p-2 hover:bg-stone-100 text-stone-700 transition cursor-pointer"
-            title="Zoom Out"
-          >
-            <ZoomOut className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Selected Barangay Interactive Info Card (Top Right / Bottom Right) */}
-        {selectedBarangayData && (
-          <div className="absolute top-3 right-3 z-20 w-80 max-w-[calc(100vw-2rem)] bg-white/98 backdrop-blur-md rounded-2xl shadow-xl border border-stone-200 p-4 animate-fade-in text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-stone-100">
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-red-600"></span>
-                  <h3 className="font-extrabold text-sm text-stone-900">
-                    Brgy. {selectedBarangayData.name}
-                  </h3>
-                  {selectedBarangayData.isUrban && (
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[9px] font-extrabold uppercase">
-                      Urban
-                    </span>
-                  )}
-                </div>
-                <p className="text-[10px] text-stone-500 mt-0.5">
-                  Code: <strong>{selectedBarangayData.code}</strong> • Hinunangan, Southern Leyte
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  setSelectedBarangayData(null);
-                  setActiveBarangayFilter('all');
-                }}
-                className="text-stone-400 hover:text-stone-700 p-1 rounded-lg hover:bg-stone-100 transition cursor-pointer"
-                title="Clear Selection"
-              >
-                <X className="w-4 h-4" />
-              </button>
+      {/* Selected Barangay Live Livestock Stats Card (Admin & Focal Inspector) */}
+      {selectedBarangayData && (
+        <div className="absolute bottom-4 left-4 z-30 w-84 bg-stone-900/95 border border-stone-700 rounded-2xl p-4 shadow-2xl backdrop-blur-md text-white text-xs max-h-[85vh] overflow-y-auto">
+          <div className="flex items-center justify-between pb-2 border-b border-stone-800">
+            <div>
+              <h4 className="font-bold text-sm text-emerald-400 flex items-center gap-1.5">
+                <Building className="w-4 h-4" /> Brgy. {selectedBarangayData.barangayName}
+              </h4>
+              <span className="text-[10px] text-stone-400">
+                Focal Officer: {selectedBarangayData.focalPersonName || 'Municipal Office'}
+              </span>
             </div>
+            <button onClick={() => setSelectedBarangayData(null)} className="text-stone-400 hover:text-white">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
-            {/* Quick Metrics Bento */}
-            <div className="grid grid-cols-2 gap-2 my-3">
-              <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-xl p-2.5">
-                <div className="text-[10px] text-emerald-800 font-bold uppercase tracking-wider">Total Swine</div>
-                <div className="text-lg font-black text-emerald-950 mt-0.5">
-                  {selectedBarangayData.totalSwine} <span className="text-xs font-normal text-emerald-700">heads</span>
-                </div>
-              </div>
-              <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-2.5">
-                <div className="text-[10px] text-amber-800 font-bold uppercase tracking-wider">Ready to Sell</div>
-                <div className="text-lg font-black text-amber-950 mt-0.5">
-                  {selectedBarangayData.readyToSell} <span className="text-xs font-normal text-amber-700">heads</span>
-                </div>
-              </div>
-              <div className="bg-stone-50 border border-stone-200 rounded-xl p-2.5">
-                <div className="text-[10px] text-stone-500 font-bold uppercase tracking-wider">Registered Farmers</div>
-                <div className="text-base font-extrabold text-stone-900 mt-0.5">
-                  {selectedBarangayData.farmersCount} <span className="text-xs font-normal text-stone-500">owners</span>
-                </div>
-              </div>
-              <div className="bg-stone-50 border border-stone-200 rounded-xl p-2.5">
-                <div className="text-[10px] text-stone-500 font-bold uppercase tracking-wider">ASF Status</div>
-                <div className="flex items-center gap-1 mt-1">
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full ${
-                      selectedBarangayData.riskLevel === 'green'
-                        ? 'bg-emerald-600'
-                        : selectedBarangayData.riskLevel === 'yellow'
-                        ? 'bg-amber-500'
-                        : 'bg-red-600'
-                    }`}
-                  ></span>
-                  <span className="font-extrabold capitalize text-stone-800">
-                    {selectedBarangayData.riskLevel === 'green' ? 'Safe Zone' : selectedBarangayData.riskLevel}
-                  </span>
-                </div>
-              </div>
+          <div className="grid grid-cols-2 gap-2 my-2.5">
+            <div className="bg-stone-800/80 p-2 rounded-xl border border-stone-700/60">
+              <span className="text-stone-400 text-[10px] block">Total Swine Heads</span>
+              <strong className="text-lg text-emerald-400 font-black">{selectedBarangayData.totalSwine}</strong>
             </div>
-
-            {/* Geographical & Administrative Specs */}
-            <div className="space-y-1 text-[11px] text-stone-600 border-t border-stone-100 pt-2 mb-3">
-              <div className="flex justify-between">
-                <span>Boundary Area:</span>
-                <strong className="text-stone-800">~{selectedBarangayData.areaHectares} ha</strong>
-              </div>
-              <div className="flex justify-between">
-                <span>Boundary Perimeter:</span>
-                <strong className="text-stone-800">~{selectedBarangayData.perimeterKm} km</strong>
-              </div>
-              <div className="flex justify-between">
-                <span>Barangay Focal:</span>
-                <strong className="text-stone-800">{selectedBarangayData.focalPerson}</strong>
-              </div>
-              <div className="flex justify-between">
-                <span>Contact Hotline:</span>
-                <strong className="text-stone-800">{selectedBarangayData.contact}</strong>
-              </div>
-              <div className="flex justify-between">
-                <span>Center GPS:</span>
-                <span className="text-stone-500 font-mono text-[10px]">
-                  {selectedBarangayData.latitude.toFixed(6)}, {selectedBarangayData.longitude.toFixed(6)}
-                </span>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                onClick={() => {
-                  if (selectedBarangayData.boundaryPolygon?.length >= 3) {
-                    const bounds = L.latLngBounds(
-                      selectedBarangayData.boundaryPolygon.map((p: [number, number]) => L.latLng(p[0], p[1]))
-                    );
-                    mapInstanceRef.current?.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
-                  } else {
-                    mapInstanceRef.current?.flyTo(
-                      [selectedBarangayData.latitude, selectedBarangayData.longitude],
-                      16
-                    );
-                  }
-                }}
-                className="flex-1 bg-emerald-800 hover:bg-emerald-700 text-white font-bold py-2 rounded-xl text-center transition cursor-pointer shadow-xs"
-              >
-                Zoom to Boundary
-              </button>
-              <button
-                onClick={handleResetMap}
-                className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-xl transition cursor-pointer"
-              >
-                Clear
-              </button>
+            <div className="bg-stone-800/80 p-2 rounded-xl border border-stone-700/60">
+              <span className="text-stone-400 text-[10px] block">Registered Farmers</span>
+              <strong className="text-lg text-blue-400 font-black">{selectedBarangayData.registeredFarmers}</strong>
             </div>
           </div>
-        )}
 
-        {/* Dynamic Legend Panel (Bottom Left) */}
-        <div className="absolute bottom-3 left-3 z-10 max-w-xs transition-all duration-200">
-          {isLegendOpen ? (
-            <div className="bg-white/95 backdrop-blur-md rounded-xl p-3 border border-stone-200 shadow-lg text-xs text-stone-800 space-y-2">
-              <div className="flex items-center justify-between gap-4 font-bold border-b border-stone-200 pb-1.5">
-                <span className="flex items-center gap-1.5 text-stone-900 font-extrabold">
-                  <Info className="w-3.5 h-3.5 text-emerald-600" /> Municipal Map Legend
-                </span>
-                <button
-                  onClick={() => setIsLegendOpen(false)}
-                  className="text-stone-400 hover:text-stone-600 cursor-pointer p-0.5"
-                  title="Minimize Legend"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-
-              <div className="space-y-1.5 text-[11px]">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-2.5 border border-red-600 bg-red-500/20 rounded-xs"></div>
-                  <span>Barangay Boundary (Contiguous)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-3.5 h-3.5 rounded-full bg-red-600 border border-white shadow-2xs flex items-center justify-center text-[8px] text-white font-bold">●</span>
-                  <span>Registered Swine Pin (3D)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-3.5 h-3.5 rounded-full bg-amber-500 text-[9px] text-white flex items-center justify-center font-bold">★</span>
-                  <span>Ready for Market Sale</span>
-                </div>
-                {showHeatmap && (
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-orange-500"></span>
-                    <span>Swine Density Heat Gradient</span>
-                  </div>
-                )}
-                {showAsfZones && (
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-emerald-600"></span>
-                    <span>ASF Risk Zone Radius</span>
-                  </div>
-                )}
-                {gpsActive && (
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-blue-600 animate-ping"></span>
-                    <span>Your Live GPS Location</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="text-[10px] text-stone-500 pt-1 border-t border-stone-100 flex items-center justify-between">
-                <span>40 Hinunangan Barangays</span>
-                <span className="font-bold text-emerald-900">100% Boundary Mapped</span>
-              </div>
+          <div className="space-y-1.5 bg-stone-800/40 p-2 rounded-xl border border-stone-800">
+            <div className="flex justify-between">
+              <span className="text-stone-400">Breeding Boars:</span>
+              <strong className="text-amber-400">{selectedBarangayData.breedingBoars}</strong>
             </div>
-          ) : (
-            <button
-              onClick={() => setIsLegendOpen(true)}
-              className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-lg border border-stone-200 shadow-md text-xs font-bold text-stone-700 flex items-center gap-1.5 hover:bg-stone-50 cursor-pointer"
-            >
-              <Info className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Legend</span>
-            </button>
+            <div className="flex justify-between">
+              <span className="text-stone-400">Breeding Sows:</span>
+              <strong className="text-purple-400">{selectedBarangayData.breedingSows}</strong>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-stone-400">Piglets:</span>
+              <strong>{selectedBarangayData.piglets}</strong>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-stone-400">Growers:</span>
+              <strong>{selectedBarangayData.growers}</strong>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-stone-400">Fatteners / Finishers:</span>
+              <strong>{selectedBarangayData.fatteners}</strong>
+            </div>
+            <div className="flex justify-between pt-1 border-t border-stone-700">
+              <span className="text-stone-400">Ready for Market Sale:</span>
+              <strong className="text-emerald-400">🌟 {selectedBarangayData.readyForSale}</strong>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-stone-400">ASF Zone Status:</span>
+              <span
+                className={`font-bold text-[10px] px-1.5 py-0.5 rounded uppercase ${
+                  selectedBarangayData.asfZone === 'RED'
+                    ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                    : selectedBarangayData.asfZone === 'YELLOW'
+                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                    : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                }`}
+              >
+                {selectedBarangayData.asfZone} ZONE
+              </span>
+            </div>
+          </div>
+
+          {selectedBarangayData.swineWithoutGps > 0 && (
+            <div className="mt-2 p-2 bg-stone-800/60 rounded-xl border border-stone-700 text-[10px] text-stone-300">
+              <span className="text-amber-400 font-semibold block mb-0.5">ℹ Geographic Polygon Association:</span>
+              {selectedBarangayData.swineWithoutGps} swine record(s) without pen GPS coordinates are associated with this barangay polygon without invented coordinates.
+            </div>
           )}
         </div>
+      )}
 
-        {/* Location Picker Prompt (when in picker mode) */}
-        {isLocationPicker && (
-          <div className="absolute top-3 right-3 z-10 bg-emerald-900/90 backdrop-blur-md text-white px-3 py-2 rounded-xl shadow-lg text-xs max-w-xs border border-emerald-700 animate-fade-in">
-            <div className="font-bold flex items-center gap-1.5">
-              <Crosshair className="w-4 h-4 text-emerald-300 animate-spin" style={{ animationDuration: '4s' }} />
-              Location Picker Active
+      {/* Map Legend (Permanent / Collapsible) */}
+      <div className="absolute bottom-4 right-4 z-30">
+        {isLegendOpen ? (
+          <div className="bg-stone-900/95 border border-stone-700 rounded-2xl p-3 shadow-2xl backdrop-blur-md text-white text-xs w-64 space-y-2">
+            <div className="flex items-center justify-between pb-1 border-b border-stone-800">
+              <span className="font-bold text-[11px] text-stone-300 uppercase tracking-wider">GIS Map Legend</span>
+              <button onClick={() => setIsLegendOpen(false)} className="text-stone-400 hover:text-white">
+                <EyeOff className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <p className="text-[11px] text-emerald-100 mt-1">
-              Click anywhere on the map to place the swine pen pin. The closest barangay and coordinates will be auto-selected.
-            </p>
+
+            <div className="space-y-1.5 text-[11px]">
+              <div className="flex items-center gap-2">
+                <span className="w-4 h-2.5 border border-emerald-500 bg-emerald-500/20 rounded-xs"></span>
+                <span>Barangay Cadastral Boundary</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center text-[10px]">
+                  🐖
+                </span>
+                <span>Swine Location (Red: Active, Gold: Ready)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px]">
+                  👤
+                </span>
+                <span>Registered Farmer Location</span>
+              </div>
+              <div className="pt-1 border-t border-stone-800">
+                <span className="text-[10px] text-stone-400 block mb-1 font-semibold">ASF BIOSAFETY ZONES:</span>
+                <div className="grid grid-cols-2 gap-1 text-[10px]">
+                  <span className="flex items-center gap-1 text-red-400">🔴 Red (Infected)</span>
+                  <span className="flex items-center gap-1 text-purple-400">🟣 Pink (Buffer)</span>
+                  <span className="flex items-center gap-1 text-yellow-400">🟡 Yellow (Surv.)</span>
+                  <span className="flex items-center gap-1 text-emerald-400">🟢 Green (Free)</span>
+                </div>
+              </div>
+
+              {showHeatmap && (
+                <div className="pt-1 border-t border-stone-800">
+                  <span className="text-[10px] text-stone-400 block mb-1 font-semibold">
+                    HEATMAP INTENSITY ({heatmapMode.replace('_', ' ').toUpperCase()}):
+                  </span>
+                  <div className="h-2 w-full rounded bg-gradient-to-r from-emerald-500 via-amber-400 to-red-600" />
+                  <div className="flex justify-between text-[9px] text-stone-400 mt-0.5">
+                    <span>Min: {heatmapData.minVal}</span>
+                    <span>Max: {heatmapData.maxVal}</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
+        ) : (
+          <button
+            onClick={() => setIsLegendOpen(true)}
+            className="bg-stone-900/90 hover:bg-stone-800 text-stone-300 border border-stone-700 px-3 py-1.5 rounded-xl shadow-md backdrop-blur-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+          >
+            <Eye className="w-3.5 h-3.5" /> Show Legend
+          </button>
         )}
       </div>
     </div>
   );
 };
 
-export const GisMap: React.FC<GisMapProps> = (props) => {
+// Error Boundary for Google Maps with seamless fallback to Leaflet Survey Map
+interface GoogleMapErrorBoundaryProps {
+  children: React.ReactNode;
+  onFallback: () => void;
+}
+
+interface GoogleMapErrorBoundaryState {
+  hasError: boolean;
+}
+
+class GoogleMapErrorBoundary extends (React.Component as any) {
+  constructor(props: GoogleMapErrorBoundaryProps) {
+    super(props);
+    (this as any).state = {
+      hasError: false,
+    };
+  }
+
+  static getDerivedStateFromError(): GoogleMapErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: any) {
+    console.warn('Google Maps error boundary caught error, switching to Leaflet:', error);
+    (this as any).props.onFallback();
+  }
+
+  render() {
+    const state = (this as any).state as GoogleMapErrorBoundaryState;
+    const props = (this as any).props as GoogleMapErrorBoundaryProps;
+    if (state.hasError) {
+      return null;
+    }
+    return props.children;
+  }
+}
+
+export const GisMap: React.FC<GisMapProps> = props => {
   const [engine, setEngine] = useState<'google' | 'leaflet'>('google');
 
   if (engine === 'google') {
     return (
-      <GoogleGisMap
-        {...props}
-        onSwitchToLeaflet={() => setEngine('leaflet')}
-      />
+      <GoogleMapErrorBoundary onFallback={() => setEngine('leaflet')}>
+        <GoogleGisMap {...props} onSwitchToLeaflet={() => setEngine('leaflet')} />
+      </GoogleMapErrorBoundary>
     );
   }
 
-  return (
-    <LeafletGisMap
-      {...props}
-      onSwitchToGoogle={() => setEngine('google')}
-    />
-  );
+  return <LeafletGisMap {...props} onSwitchToGoogle={() => setEngine('google')} />;
 };

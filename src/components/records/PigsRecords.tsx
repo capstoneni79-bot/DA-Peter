@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search,
-  Filter,
   ArrowUpDown,
-  Download,
   Printer,
   Edit,
   Trash2,
@@ -12,38 +10,39 @@ import {
   CheckCircle,
   FileSpreadsheet,
   FileText,
-  BadgePercent,
   CheckCircle2,
-  XCircle,
   Plus,
-  ExternalLink,
-  ShieldCheck,
-  Tag,
-  Clock,
   Sparkles,
   ShoppingBag,
   Upload,
   Image as ImageIcon,
   Save,
-  RotateCcw,
   Eye,
   Columns,
   Layers,
   ChevronDown,
-  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   X,
-  Building2,
-  User,
   MapPin,
-  Check,
   SlidersHorizontal,
   AlertCircle,
+  AlertTriangle,
+  Lock,
+  Calendar,
+  Scale,
+  Shield,
+  Phone,
+  User,
 } from 'lucide-react';
 import {
   Barangay,
   RegistryFormField,
   RegistryFormSchema,
   SwineRecord,
+  SwineType,
+  FarmScale,
+  ASFZone,
   UserAccount,
   UserRole,
 } from '../../types';
@@ -54,9 +53,16 @@ import {
   formatFieldValue,
   getAllActiveFields,
   getFieldValue,
-  getFieldKey,
   matchRecordSearch,
 } from '../../utils/registryFieldUtils';
+import {
+  calculateSwineAge,
+  getEstimatedWeightRange,
+  classifyFarmScale,
+  getFarmScaleLabel,
+  getBarangayASFZone,
+  shouldShowASFWarning,
+} from '../../utils/swineRegistryLogic';
 
 interface PigsRecordsProps {
   swineList: SwineRecord[];
@@ -67,6 +73,8 @@ interface PigsRecordsProps {
   onIssueCertificate: (swine: SwineRecord) => void;
   onAddSwine: () => void;
   onRefresh: () => void;
+  onViewOnMap?: (swine: SwineRecord) => void;
+  initialViewingRecordId?: string | null;
 }
 
 export const PigsRecords: React.FC<PigsRecordsProps> = ({
@@ -78,6 +86,8 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   onIssueCertificate,
   onAddSwine,
   onRefresh,
+  onViewOnMap,
+  initialViewingRecordId,
 }) => {
   // Schema configuration state
   const [formSchema, setFormSchema] = useState<RegistryFormSchema>(() =>
@@ -89,20 +99,43 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   const [selectedBarangay, setSelectedBarangay] = useState<string>(
     currentRole === 'focal' && currentUser?.assignedBarangay ? currentUser.assignedBarangay : 'all'
   );
+  const [swineTypeFilter, setSwineTypeFilter] = useState<string>('all');
+  const [farmScaleFilter, setFarmScaleFilter] = useState<string>('all');
+  const [asfZoneFilter, setAsfZoneFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [biosecurityFilter, setBiosecurityFilter] = useState<'all' | 'warning' | 'no_warning'>('all');
   const [readyFilter, setReadyFilter] = useState<'all' | 'ready' | 'not_ready'>('all');
   const [showArchived, setShowArchived] = useState<boolean>(false);
+
+  // Sorting State
   const [sortFieldKey, setSortFieldKey] = useState<string>('registeredAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
-  // Column Management
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+
+  // Column Picker Management
   const [visibleColumnIds, setVisibleColumnIds] = useState<Record<string, boolean>>({});
   const [showColumnPicker, setShowColumnPicker] = useState<boolean>(false);
 
-  // Detail Modal State
+  // Modals
   const [viewingRecord, setViewingRecord] = useState<SwineRecord | null>(null);
+  const [deleteConfirmRecord, setDeleteConfirmRecord] = useState<SwineRecord | null>(null);
+  const [printSingleRecord, setPrintSingleRecord] = useState<SwineRecord | null>(null);
 
-  // Print Report & Import States
+  useEffect(() => {
+    if (initialViewingRecordId) {
+      const found = swineList.find(
+        s => s.id === initialViewingRecordId || s.pigIdTag === initialViewingRecordId
+      );
+      if (found) {
+        setViewingRecord(found);
+      }
+    }
+  }, [initialViewingRecordId, swineList]);
+
+  // Table Print & Import States
   const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
   const [showPrintMenu, setShowPrintMenu] = useState<boolean>(false);
   const [showPrintSelectModal, setShowPrintSelectModal] = useState<boolean>(false);
@@ -118,7 +151,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   const [showLogoCustomizer, setShowLogoCustomizer] = useState<boolean>(false);
   const [logoSaveSuccess, setLogoSaveSuccess] = useState<boolean>(false);
 
-  // Listen to Schema Changes from Admin Customizer
+  // Sync Schema Changes
   useEffect(() => {
     const handleSchemaChange = (e: Event) => {
       const customEvent = e as CustomEvent<RegistryFormSchema>;
@@ -143,7 +176,22 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     }
   }, []);
 
-  // Active Fields from Schema (The Central Source of Truth)
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    searchTerm,
+    selectedBarangay,
+    swineTypeFilter,
+    farmScaleFilter,
+    asfZoneFilter,
+    statusFilter,
+    biosecurityFilter,
+    readyFilter,
+    showArchived,
+  ]);
+
+  // Active Fields from Schema
   const activeFields: ActiveFieldItem[] = useMemo(() => {
     return getAllActiveFields(formSchema);
   }, [formSchema]);
@@ -179,7 +227,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // Toggle single column visibility
   const toggleColumnVisibility = (fieldId: string) => {
     setVisibleColumnIds(prev => ({
       ...prev,
@@ -191,9 +238,40 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     setVisibleColumnIds({});
   };
 
+  // Pre-calculate derived fields for every swine record to ensure reactive accuracy
+  const enhancedSwineList = useMemo(() => {
+    return swineList.map(s => {
+      const pigId = s.pigIdTag || s.earTagNo || 'HIN-2026-0000';
+      const age = calculateSwineAge(s.birthDate);
+      const safeDays = age.isValid ? age.days : (s.ageDays || 0);
+      const safeMonths = age.isValid ? age.months : (s.ageMonths || 0);
+      const estimatedWeightRange = getEstimatedWeightRange(safeDays);
+      const actualWeight = s.actualWeightKg !== undefined && s.actualWeightKg !== null ? s.actualWeightKg : (s.weightKg || null);
+      const currentFarmScale = s.farmScale || classifyFarmScale(s.penCapacity || (s.farmType === 'commercial' ? 50 : 5));
+      const currentAsfZone = getBarangayASFZone(s.barangay, barangays);
+      const hasBiosecurityWarning = shouldShowASFWarning(s.swineType, currentAsfZone);
+      const isReadyToSell = s.readyToSell || s.status === 'ready_to_sell';
+
+      return {
+        ...s,
+        computedPigId: pigId,
+        computedAgeDays: safeDays,
+        computedAgeMonths: safeMonths,
+        computedAgeLabel: `${safeDays} days / ${safeMonths === 1 ? '1 month' : `${safeMonths} months`}`,
+        computedEstimatedWeight: estimatedWeightRange,
+        computedActualWeight: actualWeight,
+        computedFarmScale: currentFarmScale,
+        computedAsfZone: currentAsfZone,
+        computedHasWarning: hasBiosecurityWarning,
+        computedIsReady: isReadyToSell,
+      };
+    });
+  }, [swineList, barangays]);
+
   // Filtering
   const filtered = useMemo(() => {
-    return swineList.filter(s => {
+    return enhancedSwineList.filter(s => {
+      // Role scope filter
       const itemBg = (s.barangay || '').toLowerCase();
       if (currentRole === 'focal' && currentUser?.assignedBarangay) {
         if (itemBg !== (currentUser.assignedBarangay || '').toLowerCase()) {
@@ -203,20 +281,61 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         if (itemBg !== (selectedBarangay || '').toLowerCase()) return false;
       }
 
+      // Active vs Archived
       if (showArchived) {
         if (!s.isArchived) return false;
       } else {
         if (s.isArchived) return false;
       }
 
-      if (statusFilter !== 'all' && s.status !== statusFilter) return false;
+      // Swine Type Filter
+      if (swineTypeFilter !== 'all') {
+        const typeNormalized = (s.swineType || '').toLowerCase();
+        if (swineTypeFilter === 'boar' && typeNormalized !== 'boar' && typeNormalized !== 'breeding_boar') return false;
+        if (swineTypeFilter === 'sow' && typeNormalized !== 'sow' && typeNormalized !== 'breeding_sow') return false;
+        if (swineTypeFilter === 'piglet' && typeNormalized !== 'piglet') return false;
+        if (swineTypeFilter === 'grower' && typeNormalized !== 'grower') return false;
+        if (swineTypeFilter === 'finisher' && typeNormalized !== 'finisher') return false;
+      }
 
-      if (readyFilter === 'ready' && !s.readyToSell) return false;
-      if (readyFilter === 'not_ready' && s.readyToSell) return false;
+      // Farm Scale Filter
+      if (farmScaleFilter !== 'all' && s.computedFarmScale !== farmScaleFilter) {
+        return false;
+      }
 
-      // Dynamic search across all active fields
+      // ASF Zone Filter
+      if (asfZoneFilter !== 'all' && s.computedAsfZone !== asfZoneFilter) {
+        return false;
+      }
+
+      // Status Filter
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'ready' && !s.computedIsReady) return false;
+        if (statusFilter === 'sold' && s.status !== 'sold') return false;
+        if (statusFilter === 'active' && (s.status === 'sold' || s.isArchived)) return false;
+        if (statusFilter === 'quarantined' && s.status !== 'quarantined') return false;
+        if (statusFilter === 'sick' && s.status !== 'sick') return false;
+      }
+
+      // Biosecurity Warning Filter
+      if (biosecurityFilter === 'warning' && !s.computedHasWarning) return false;
+      if (biosecurityFilter === 'no_warning' && s.computedHasWarning) return false;
+
+      // Ready to Sell Quick Filter
+      if (readyFilter === 'ready' && !s.computedIsReady) return false;
+      if (readyFilter === 'not_ready' && s.computedIsReady) return false;
+
+      // Search Filter: Pig ID, Farmer, Barangay, Swine Type, Status
       if (searchTerm.trim()) {
-        if (!matchRecordSearch(s, searchTerm, activeFields)) {
+        const q = searchTerm.toLowerCase().trim();
+        const matchesPigId = (s.computedPigId || '').toLowerCase().includes(q);
+        const matchesFarmer = (s.farmerName || '').toLowerCase().includes(q);
+        const matchesBarangay = (s.barangay || '').toLowerCase().includes(q);
+        const matchesType = (s.swineType || '').toLowerCase().includes(q);
+        const matchesStatus = (s.status || '').toLowerCase().includes(q);
+        const matchesCustom = matchRecordSearch(s, q, activeFields);
+
+        if (!matchesPigId && !matchesFarmer && !matchesBarangay && !matchesType && !matchesStatus && !matchesCustom) {
           return false;
         }
       }
@@ -224,18 +343,22 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
       return true;
     });
   }, [
-    swineList,
+    enhancedSwineList,
     selectedBarangay,
     currentRole,
     currentUser,
     showArchived,
+    swineTypeFilter,
+    farmScaleFilter,
+    asfZoneFilter,
     statusFilter,
+    biosecurityFilter,
     readyFilter,
     searchTerm,
     activeFields,
   ]);
 
-  // Dynamic Sorting
+  // Sorting
   const sortedRecords = useMemo(() => {
     const list = [...filtered];
     list.sort((a, b) => {
@@ -245,20 +368,40 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
       if (sortFieldKey === 'registeredAt') {
         valA = new Date(a.registeredAt).getTime();
         valB = new Date(b.registeredAt).getTime();
-      } else if (sortFieldKey === 'earTagNo') {
-        valA = a.earTagNo || '';
-        valB = b.earTagNo || '';
+      } else if (sortFieldKey === 'pigIdTag') {
+        valA = a.computedPigId || '';
+        valB = b.computedPigId || '';
+      } else if (sortFieldKey === 'birthDate') {
+        valA = a.birthDate ? new Date(a.birthDate).getTime() : 0;
+        valB = b.birthDate ? new Date(b.birthDate).getTime() : 0;
+      } else if (sortFieldKey === 'age') {
+        valA = a.computedAgeDays;
+        valB = b.computedAgeDays;
+      } else if (sortFieldKey === 'estimatedWeight') {
+        valA = a.computedEstimatedWeight;
+        valB = b.computedEstimatedWeight;
+      } else if (sortFieldKey === 'actualWeight') {
+        valA = Number(a.computedActualWeight) || 0;
+        valB = Number(b.computedActualWeight) || 0;
       } else if (sortFieldKey === 'farmerName') {
         valA = a.farmerName || '';
         valB = b.farmerName || '';
-      } else if (sortFieldKey === 'weightKg') {
-        valA = Number(a.weightKg) || 0;
-        valB = Number(b.weightKg) || 0;
       } else if (sortFieldKey === 'barangay') {
         valA = a.barangay || '';
         valB = b.barangay || '';
+      } else if (sortFieldKey === 'swineType') {
+        valA = a.swineType || '';
+        valB = b.swineType || '';
+      } else if (sortFieldKey === 'farmScale') {
+        valA = a.computedFarmScale || '';
+        valB = b.computedFarmScale || '';
+      } else if (sortFieldKey === 'asfZone') {
+        valA = a.computedAsfZone || '';
+        valB = b.computedAsfZone || '';
+      } else if (sortFieldKey === 'status') {
+        valA = a.status || '';
+        valB = b.status || '';
       } else {
-        // Find matching field in activeFields
         const matched = activeFields.find(f => f.field.id === sortFieldKey || f.fieldKey === sortFieldKey);
         if (matched) {
           valA = getFieldValue(a, matched.field);
@@ -284,12 +427,20 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     return list;
   }, [filtered, sortFieldKey, sortOrder, activeFields]);
 
+  // Pagination Slice
+  const totalRecords = sortedRecords.length;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+  const validCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (validCurrentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalRecords);
+  const paginatedRecords = sortedRecords.slice(startIndex, endIndex);
+
   // Handlers
-  const handleDelete = (id: string, tag: string) => {
-    if (window.confirm(`Are you sure you want to permanently delete swine record "${tag}"?`)) {
-      storageService.deleteSwineRecord(id);
-      onRefresh();
-    }
+  const handleConfirmDelete = () => {
+    if (!deleteConfirmRecord) return;
+    storageService.deleteSwineRecord(deleteConfirmRecord.id);
+    setDeleteConfirmRecord(null);
+    onRefresh();
   };
 
   const handleToggleSell = (swine: SwineRecord) => {
@@ -299,10 +450,8 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   };
 
   const handleMarkSold = (swine: SwineRecord) => {
-    if (window.confirm(`Mark swine "${swine.earTagNo}" as officially SOLD / Disposed?`)) {
-      storageService.markAsSold(swine.id);
-      onRefresh();
-    }
+    storageService.markAsSold(swine.id);
+    onRefresh();
   };
 
   const handleToggleArchive = (id: string) => {
@@ -310,29 +459,50 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     onRefresh();
   };
 
-  // Export to Excel (CSV with all active dynamic columns)
+  // Export to CSV with fully recalculated derived values
   const exportToExcel = () => {
-    const displayedFields = activeFields.filter(f => visibleColumnIds[f.field.id] !== false);
-    const headers = displayedFields.map(f => `"${f.field.label.replace(/"/g, '""')}"`);
+    const headers = [
+      'Pig ID Tag',
+      'Farmer Name',
+      'Farmer Contact',
+      'Barangay',
+      'Birth Date',
+      'Age (Days)',
+      'Age (Months)',
+      'Estimated Weight (kg)',
+      'Actual Weight (kg)',
+      'Swine Type',
+      'Farm Scale',
+      'ASF Zone',
+      'Biosecurity Warning',
+      'Status',
+      'Market Ready',
+      'Estimated Price (PHP)',
+      'Registered Date',
+    ];
 
-    // Add extra system columns if not already in schema
-    headers.push('"Market Status"', '"Registration Date"');
+    const rows = sortedRecords.map(s => [
+      `"${s.computedPigId}"`,
+      `"${s.farmerName.replace(/"/g, '""')}"`,
+      `"${s.farmerContact || ''}"`,
+      `"${s.barangay}"`,
+      `"${s.birthDate || ''}"`,
+      s.computedAgeDays,
+      s.computedAgeMonths,
+      `"${s.computedEstimatedWeight}"`,
+      s.computedActualWeight !== null ? s.computedActualWeight : '""',
+      `"${s.swineType.toUpperCase()}"`,
+      `"${s.computedFarmScale}"`,
+      `"${s.computedAsfZone}"`,
+      `"${s.computedHasWarning ? 'WARNING' : 'SAFE'}"`,
+      `"${s.status.toUpperCase()}"`,
+      `"${s.computedIsReady ? 'YES' : 'NO'}"`,
+      s.estimatedPricePhp || 0,
+      `"${new Date(s.registeredAt).toISOString().split('T')[0]}"`,
+    ]);
 
-    const rows = sortedRecords.map(s => {
-      const fieldValues = displayedFields.map(f => {
-        const raw = getFieldValue(s, f.field);
-        const formatted = formatFieldValue(raw, f.field);
-        return `"${String(formatted).replace(/"/g, '""')}"`;
-      });
-      fieldValues.push(
-        `"${s.readyToSell ? 'READY TO SELL' : s.status.toUpperCase()}"`,
-        `"${new Date(s.registeredAt).toLocaleDateString()}"`
-      );
-      return fieldValues.join(',');
-    });
-
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -341,57 +511,55 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // Export to MS Word (.doc with HTML table of all active columns)
+  // Export to Word Document (.DOC)
   const exportToWord = () => {
-    const displayedFields = activeFields.filter(f => visibleColumnIds[f.field.id] !== false);
-
-    const headersHtml = [
-      '<th style="background-color:#15803d;color:white;padding:6px;border:1px solid #15803d;">#</th>',
-      ...displayedFields.map(
-        f => `<th style="background-color:#15803d;color:white;padding:6px;border:1px solid #15803d;">${f.field.label}</th>`
-      ),
-      '<th style="background-color:#15803d;color:white;padding:6px;border:1px solid #15803d;">Status</th>',
-    ].join('');
-
     const tableRowsHtml = sortedRecords
-      .map((s, i) => {
-        const cells = displayedFields
-          .map(f => {
-            const raw = getFieldValue(s, f.field);
-            const formatted = formatFieldValue(raw, f.field);
-            return `<td style="padding:6px;border:1px solid #ccc;">${formatted}</td>`;
-          })
-          .join('');
-
-        return `
+      .map((s, i) => `
         <tr style="border-bottom: 1px solid #ddd;">
-          <td style="padding: 6px; border: 1px solid #ccc; font-weight: bold;">${i + 1}</td>
-          ${cells}
-          <td style="padding: 6px; border: 1px solid #ccc; font-weight: bold; text-align: center;">${s.readyToSell ? 'READY TO SELL' : s.status.toUpperCase()}</td>
+          <td style="padding: 6px; border: 1px solid #ccc; font-weight: bold; font-family: monospace;">${s.computedPigId}</td>
+          <td style="padding: 6px; border: 1px solid #ccc;">${s.farmerName}</td>
+          <td style="padding: 6px; border: 1px solid #ccc;">${s.barangay}</td>
+          <td style="padding: 6px; border: 1px solid #ccc;">${s.computedAgeLabel}</td>
+          <td style="padding: 6px; border: 1px solid #ccc;">${s.computedEstimatedWeight}</td>
+          <td style="padding: 6px; border: 1px solid #ccc;">${s.computedActualWeight ? `${s.computedActualWeight} kg` : '—'}</td>
+          <td style="padding: 6px; border: 1px solid #ccc;">${s.swineType.toUpperCase()}</td>
+          <td style="padding: 6px; border: 1px solid #ccc;">${s.computedFarmScale}</td>
+          <td style="padding: 6px; border: 1px solid #ccc; font-weight: bold; color: ${s.computedAsfZone === 'RED' ? '#b91c1c' : s.computedAsfZone === 'PINK' ? '#db2777' : s.computedAsfZone === 'YELLOW' ? '#d97706' : '#15803d'};">${s.computedAsfZone}</td>
+          <td style="padding: 6px; border: 1px solid #ccc; font-weight: bold;">${s.computedIsReady ? 'READY FOR SALE' : s.status.toUpperCase()}</td>
         </tr>
-      `;
-      })
+      `)
       .join('');
 
     const wordContent = `
       <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-      <head><title>DA Hinunangan Swine Registry</title>
+      <head><title>DA Hinunangan Swine Records Registry</title>
       <style>
-        body { font-family: Arial, sans-serif; font-size: 10pt; }
+        body { font-family: Arial, sans-serif; font-size: 9.5pt; }
         h2, h3 { color: #15803d; margin-bottom: 2px; }
-        table { border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 9pt; }
+        table { border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 8.5pt; }
       </style>
       </head>
       <body>
         <div style="text-align: center; margin-bottom: 20px;">
           <p style="margin: 0; font-size: 10pt;">Republic of the Philippines • Province of Southern Leyte</p>
           <h2 style="margin: 4px 0;">MUNICIPALITY OF HINUNANGAN</h2>
-          <h3 style="margin: 0;">DEPARTMENT OF AGRICULTURE - SWINE REGISTRY</h3>
+          <h3 style="margin: 0;">DEPARTMENT OF AGRICULTURE - SWINE REGISTRY RECORDS</h3>
           <p style="margin-top: 4px; font-size: 9pt; color: #555;">Official Swine Registry Summary • Generated: ${new Date().toLocaleDateString()}</p>
         </div>
         <table>
           <thead>
-            <tr>${headersHtml}</tr>
+            <tr style="background-color: #15803d; color: white;">
+              <th style="padding: 6px; border: 1px solid #15803d;">Pig ID Tag</th>
+              <th style="padding: 6px; border: 1px solid #15803d;">Farmer</th>
+              <th style="padding: 6px; border: 1px solid #15803d;">Barangay</th>
+              <th style="padding: 6px; border: 1px solid #15803d;">Age</th>
+              <th style="padding: 6px; border: 1px solid #15803d;">Est. Weight</th>
+              <th style="padding: 6px; border: 1px solid #15803d;">Actual Weight</th>
+              <th style="padding: 6px; border: 1px solid #15803d;">Type</th>
+              <th style="padding: 6px; border: 1px solid #15803d;">Farm Scale</th>
+              <th style="padding: 6px; border: 1px solid #15803d;">ASF Zone</th>
+              <th style="padding: 6px; border: 1px solid #15803d;">Status</th>
+            </tr>
           </thead>
           <tbody>
             ${tableRowsHtml}
@@ -413,13 +581,39 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `DA_Hinunangan_Swine_Registry_${new Date().toISOString().split('T')[0]}.doc`;
+    link.download = `DA_Hinunangan_Swine_Records_${new Date().toISOString().split('T')[0]}.doc`;
     link.click();
     URL.revokeObjectURL(url);
   };
 
-  // Determine active columns to display
   const displayedActiveFields = activeFields.filter(f => visibleColumnIds[f.field.id] !== false);
+
+  // Helper Badge Color Renderers
+  const getFarmScaleBadge = (scale: FarmScale) => {
+    switch (scale) {
+      case 'COMMERCIAL_LARGE':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-black bg-purple-100 text-purple-800 border border-purple-200">COMMERCIAL_LARGE</span>;
+      case 'COMMERCIAL_MEDIUM':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-200">COMMERCIAL_MEDIUM</span>;
+      case 'BACKYARD':
+      default:
+        return <span className="px-2 py-0.5 rounded text-[10px] font-black bg-stone-100 text-stone-700 border border-stone-200">BACKYARD</span>;
+    }
+  };
+
+  const getAsfZoneBadge = (zone: ASFZone) => {
+    switch (zone) {
+      case 'RED':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-800 border border-red-300">RED</span>;
+      case 'PINK':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-black bg-pink-100 text-pink-800 border border-pink-300">PINK</span>;
+      case 'YELLOW':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-300">YELLOW</span>;
+      case 'GREEN':
+      default:
+        return <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">GREEN</span>;
+    }
+  };
 
   return (
     <div className="space-y-6 py-6 px-4 max-w-7xl mx-auto">
@@ -427,21 +621,37 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-stone-200 shadow-xs">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold text-stone-900">Registered Swine Records</h2>
+            <h2 className="text-xl font-bold text-stone-900">Swine Records Registry</h2>
             <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-0.5 rounded-full">
-              {sortedRecords.length} Heads
+              {totalRecords} Heads
             </span>
-            <span className="bg-stone-100 text-stone-600 text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 border border-stone-200">
-              <Layers className="w-3 h-3 text-emerald-700" />
-              {activeFields.length} Form Fields Active
-            </span>
+            {currentRole === 'focal' && currentUser?.assignedBarangay && (
+              <span className="bg-stone-100 text-stone-700 text-xs font-semibold px-2 py-0.5 rounded-full border border-stone-200">
+                Brgy. {currentUser.assignedBarangay} Scope
+              </span>
+            )}
           </div>
           <p className="text-xs text-stone-500 mt-1">
-            Dynamic schema-driven records synchronized directly with the <strong>Swine Registry Form</strong>.
+            Centralized Hinunangan swine registry with immutable Pig ID tags, automated age & weight recalculations, and dynamic biosecurity tracking.
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Quick Ready to Sell Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setReadyFilter(readyFilter === 'ready' ? 'all' : 'ready')}
+            className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs ${
+              readyFilter === 'ready'
+                ? 'bg-amber-100 text-amber-900 border-amber-400 ring-2 ring-amber-300'
+                : 'bg-white hover:bg-stone-50 text-stone-700 border-stone-300'
+            }`}
+            title="Filter Ready for Sale Heads"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+            <span>Ready to Sell</span>
+          </button>
+
           {/* Column Visibility Selector Toggle */}
           <button
             type="button"
@@ -451,30 +661,32 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
                 : 'border-stone-300 bg-stone-50 hover:bg-stone-100 text-stone-700'
             }`}
-            title="Choose which form fields appear as columns in the table"
+            title="Configure table columns"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-700" />
-            <span>Columns ({displayedActiveFields.length}/{activeFields.length})</span>
+            <span>Columns</span>
           </button>
 
-          {/* Import Records via Java or Device */}
-          <button
-            type="button"
-            onClick={() => setShowImportModal(true)}
-            className="px-3 py-1.5 rounded-xl border border-purple-300 bg-purple-50 hover:bg-purple-100 text-purple-900 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
-            title="Import Swine Records from Device (CSV/JSON) or Java Backend Service"
-          >
-            <Upload className="w-3.5 h-3.5 text-purple-700" />
-            <span>Import</span>
-          </button>
+          {/* Import Records */}
+          {currentRole !== 'agent' && (
+            <button
+              type="button"
+              onClick={() => setShowImportModal(true)}
+              className="px-3 py-1.5 rounded-xl border border-purple-300 bg-purple-50 hover:bg-purple-100 text-purple-900 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+              title="Import Swine Records from Device or Backend"
+            >
+              <Upload className="w-3.5 h-3.5 text-purple-700" />
+              <span>Import</span>
+            </button>
+          )}
 
-          {/* Print Menu Dropdown (Print All or Selected Columns) */}
+          {/* Print Menu Dropdown */}
           <div className="relative inline-block text-left">
             <button
               type="button"
               onClick={() => setShowPrintMenu(prev => !prev)}
               className="px-3 py-1.5 rounded-xl border border-stone-300 hover:bg-stone-100 bg-white text-stone-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
-              title="Print Swine Records (Print All or Select Columns)"
+              title="Print Swine Records Table"
             >
               <Printer className="w-3.5 h-3.5 text-stone-600" />
               <span>Print</span>
@@ -494,9 +706,9 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 >
                   <Printer className="w-4 h-4 text-emerald-700 shrink-0" />
                   <div>
-                    <div className="font-bold">Print All</div>
+                    <div className="font-bold">Print Complete Table</div>
                     <div className="text-[10px] text-stone-500 font-normal">
-                      Complete table with all active columns ({activeFields.length})
+                      Print all {activeFields.length} active columns
                     </div>
                   </div>
                 </button>
@@ -519,7 +731,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   <div>
                     <div className="font-bold">Select Columns to Print</div>
                     <div className="text-[10px] text-stone-500 font-normal">
-                      Choose specific columns and order
+                      Choose custom column selection
                     </div>
                   </div>
                 </button>
@@ -531,7 +743,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
           <button
             onClick={exportToExcel}
             className="px-3 py-1.5 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
-            title="Export Records to Excel CSV (Includes All Dynamic Fields)"
+            title="Export Records to Excel CSV"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
             <span>Excel (.CSV)</span>
@@ -547,14 +759,16 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             <span>Word (.DOC)</span>
           </button>
 
-          {/* Add New Swine */}
-          <button
-            onClick={onAddSwine}
-            className="px-4 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Register New Swine</span>
-          </button>
+          {/* Register New Swine */}
+          {currentRole !== 'agent' && (
+            <button
+              onClick={onAddSwine}
+              className="px-4 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Register Swine</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -568,7 +782,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 Customize Swine Records Table Columns
               </h3>
               <p className="text-[11px] text-stone-500">
-                All fields configured in the Swine Registry Form are available. Toggle checkboxes to show or hide columns.
+                Toggle column visibility to personalize your records view.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -582,7 +796,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               <button
                 type="button"
                 onClick={() => setShowColumnPicker(false)}
-                className="text-stone-400 hover:text-stone-700 p-1"
+                className="text-stone-400 hover:text-stone-700 p-1 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -633,17 +847,18 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         </div>
       )}
 
-      {/* Filter & Search Bar */}
+      {/* Comprehensive Search & Filters Suite */}
       <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-xs space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 text-xs">
-          {/* Search Box */}
+        {/* Row 1: Search and Core Filters */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs">
+          {/* Search Box: Pig ID, Farmer, Barangay, Swine Type, Status */}
           <div className="relative sm:col-span-2">
             <Search className="w-4 h-4 absolute left-3 top-2.5 text-stone-400" />
             <input
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Search across all fields (Ear Tag, Farmer, Breed, Custom Fields...)"
+              placeholder="Search by Pig ID, Farmer, Barangay, Type, Status..."
               className="w-full pl-9 pr-3 py-2 rounded-xl border border-stone-300 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
             />
           </div>
@@ -665,50 +880,131 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             </select>
           </div>
 
-          {/* Ready to sell status filter */}
+          {/* Swine Type Filter */}
           <div>
             <select
-              value={readyFilter}
-              onChange={e => setReadyFilter(e.target.value as 'all' | 'ready' | 'not_ready')}
+              value={swineTypeFilter}
+              onChange={e => setSwineTypeFilter(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
             >
-              <option value="all">All Market Statuses</option>
-              <option value="ready">🌟 Ready to Sell Only</option>
-              <option value="not_ready">Growers / Not for Sale</option>
+              <option value="all">All Swine Types</option>
+              <option value="boar">Breeding Boar (Barako)</option>
+              <option value="sow">Breeding Sow (Inahin)</option>
+              <option value="piglet">Piglet (Weanling)</option>
+              <option value="grower">Grower (Bakil)</option>
+              <option value="finisher">Finisher / Fattener</option>
             </select>
           </div>
 
-          {/* Sort By */}
-          <div className="flex items-center gap-1.5">
+          {/* Farm Scale Filter */}
+          <div>
+            <select
+              value={farmScaleFilter}
+              onChange={e => setFarmScaleFilter(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+            >
+              <option value="all">All Farm Scales</option>
+              <option value="BACKYARD">Backyard (1–10 heads)</option>
+              <option value="COMMERCIAL_MEDIUM">Comm. Medium (11–50 heads)</option>
+              <option value="COMMERCIAL_LARGE">Comm. Large (51+ heads)</option>
+            </select>
+          </div>
+
+          {/* ASF Zone Filter */}
+          <div>
+            <select
+              value={asfZoneFilter}
+              onChange={e => setAsfZoneFilter(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+            >
+              <option value="all">All ASF Zones</option>
+              <option value="RED">RED (Infected / High Risk)</option>
+              <option value="PINK">PINK (Buffer Zone)</option>
+              <option value="YELLOW">YELLOW (Surveillance)</option>
+              <option value="GREEN">GREEN (Free / Safe Zone)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Row 2: Secondary Filters & Sorting */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs pt-1 border-t border-stone-100">
+          {/* Status Filter */}
+          <div>
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+            >
+              <option value="all">All Statuses</option>
+              <option value="active">Active / Growing</option>
+              <option value="ready">Ready for Sale</option>
+              <option value="sold">Officially Sold</option>
+              <option value="quarantined">Quarantined</option>
+              <option value="sick">Sick / Under Treatment</option>
+            </select>
+          </div>
+
+          {/* Biosecurity Warning Filter */}
+          <div>
+            <select
+              value={biosecurityFilter}
+              onChange={e => setBiosecurityFilter(e.target.value as any)}
+              className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+            >
+              <option value="all">Biosecurity: All</option>
+              <option value="warning">⚠ Warning Only (Boar in Red/Pink)</option>
+              <option value="no_warning">No Warning (Safe)</option>
+            </select>
+          </div>
+
+          {/* Sort By Field */}
+          <div className="lg:col-span-2 flex items-center gap-1.5">
             <select
               value={sortFieldKey}
               onChange={e => setSortFieldKey(e.target.value)}
               className="flex-1 px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
             >
               <option value="registeredAt">Sort: Date Registered</option>
-              <option value="earTagNo">Sort: Ear Tag No</option>
+              <option value="pigIdTag">Sort: Pig ID Tag</option>
+              <option value="birthDate">Sort: Birth Date</option>
+              <option value="age">Sort: Calculated Age</option>
+              <option value="estimatedWeight">Sort: Estimated Weight</option>
+              <option value="actualWeight">Sort: Actual Weight</option>
               <option value="farmerName">Sort: Farmer Name</option>
-              <option value="weightKg">Sort: Live Weight</option>
               <option value="barangay">Sort: Barangay</option>
-              {activeFields.map(f => (
-                <option key={f.field.id} value={f.field.id}>
-                  Sort: {f.field.label}
-                </option>
-              ))}
+              <option value="swineType">Sort: Swine Type</option>
+              <option value="farmScale">Sort: Farm Scale</option>
+              <option value="asfZone">Sort: ASF Zone</option>
+              <option value="status">Sort: Status</option>
             </select>
             <button
               onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-              className="p-2 border border-stone-300 rounded-xl hover:bg-stone-50 text-stone-600 cursor-pointer"
-              title="Toggle Ascending / Descending"
+              className="p-2 border border-stone-300 rounded-xl hover:bg-stone-50 text-stone-600 cursor-pointer shadow-2xs"
+              title={`Toggle ${sortOrder === 'asc' ? 'Descending' : 'Ascending'}`}
             >
               <ArrowUpDown className="w-4 h-4" />
             </button>
           </div>
-        </div>
 
-        {/* Sub-toggles: Active vs Archived */}
-        <div className="flex items-center justify-between pt-1 border-t border-stone-100 text-xs text-stone-500">
-          <div className="flex items-center gap-4">
+          {/* Items Per Page */}
+          <div>
+            <select
+              value={pageSize}
+              onChange={e => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+            >
+              <option value={10}>10 records / page</option>
+              <option value={25}>25 records / page</option>
+              <option value={50}>50 records / page</option>
+              <option value={100}>100 records / page</option>
+            </select>
+          </div>
+
+          {/* Show Archived Toggle */}
+          <div className="flex items-center justify-end">
             <label className="flex items-center gap-1.5 cursor-pointer font-medium text-stone-700">
               <input
                 type="checkbox"
@@ -716,232 +1012,416 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 onChange={e => setShowArchived(e.target.checked)}
                 className="w-3.5 h-3.5 text-emerald-600 rounded border-stone-300"
               />
-              <span>Show Archived Swine Records</span>
+              <span>Archived Records</span>
             </label>
           </div>
+        </div>
 
+        {/* Live Filter Summary & Counter */}
+        <div className="flex flex-wrap items-center justify-between pt-1 border-t border-stone-100 text-xs text-stone-500">
+          <div className="flex items-center gap-3">
+            <span>
+              Showing <strong>{totalRecords === 0 ? 0 : startIndex + 1}–{endIndex}</strong> of <strong>{totalRecords}</strong> matching swine
+            </span>
+            {(searchTerm || selectedBarangay !== 'all' || swineTypeFilter !== 'all' || farmScaleFilter !== 'all' || asfZoneFilter !== 'all' || statusFilter !== 'all' || biosecurityFilter !== 'all' || readyFilter !== 'all') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setSelectedBarangay(currentRole === 'focal' && currentUser?.assignedBarangay ? currentUser.assignedBarangay : 'all');
+                  setSwineTypeFilter('all');
+                  setFarmScaleFilter('all');
+                  setAsfZoneFilter('all');
+                  setStatusFilter('all');
+                  setBiosecurityFilter('all');
+                  setReadyFilter('all');
+                }}
+                className="text-emerald-700 hover:underline font-bold cursor-pointer"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
           <span className="text-[11px]">
-            Showing <strong>{sortedRecords.length}</strong> of {swineList.length} total records
+            Database Total: {swineList.length} recorded heads
           </span>
         </div>
       </div>
 
-      {/* Dynamic Schema-Driven Records Table with Horizontal Scroll Support */}
+      {/* Primary Swine Records Table */}
       <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs whitespace-nowrap min-w-[1000px]">
+          <table className="w-full text-left text-xs whitespace-nowrap min-w-[1250px]">
             <thead className="bg-stone-100/90 text-stone-700 font-bold border-b border-stone-200 uppercase tracking-wider text-[10px]">
               <tr>
-                {/* Primary Column 1: Ear Tag & Photo (Sticky Left) */}
-                <th className="py-3.5 px-4 sticky left-0 bg-stone-100/95 z-10 border-r border-stone-200 shadow-2xs">
-                  Swine / Ear Tag
+                {/* Column 1: Pig ID Tag (Sticky Left, Read-only) */}
+                <th
+                  className="py-3.5 px-4 sticky left-0 bg-stone-100/95 z-10 border-r border-stone-200 shadow-2xs cursor-pointer hover:bg-stone-200/50"
+                  onClick={() => {
+                    setSortFieldKey('pigIdTag');
+                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Lock className="w-3 h-3 text-stone-400" />
+                    <span>Pig ID Tag</span>
+                    {sortFieldKey === 'pigIdTag' && (
+                      <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
                 </th>
 
-                {/* Primary Column 2: Farmer & Location */}
-                <th className="py-3.5 px-4 border-r border-stone-200">
-                  Farmer & Barangay
+                {/* Column 2: Farmer */}
+                <th
+                  className="py-3.5 px-4 border-r border-stone-200 cursor-pointer hover:bg-stone-200/50"
+                  onClick={() => {
+                    setSortFieldKey('farmerName');
+                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Farmer</span>
+                    {sortFieldKey === 'farmerName' && (
+                      <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
                 </th>
 
-                {/* Dynamic Fields generated directly from the Swine Registry Form Schema */}
-                {displayedActiveFields.map(item => {
-                  // Skip duplicate ear tag and farmer name as they are already in the frozen primary columns
-                  if (
-                    item.field.id === 'fld_ear_tag' ||
-                    item.field.id === 'fld_farmer_name'
-                  ) {
-                    return null;
-                  }
-                  return (
-                    <th
-                      key={item.field.id}
-                      className="py-3.5 px-4 border-r border-stone-200 hover:bg-stone-200/50 cursor-pointer transition select-none"
-                      onClick={() => {
-                        if (sortFieldKey === item.field.id) {
-                          setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-                        } else {
-                          setSortFieldKey(item.field.id);
-                          setSortOrder('asc');
-                        }
-                      }}
-                      title={`Click to sort by ${item.field.label}`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span>{item.field.label}</span>
-                        {sortFieldKey === item.field.id && (
-                          <span className="text-emerald-700 font-bold">
-                            {sortOrder === 'asc' ? '↑' : '↓'}
-                          </span>
-                        )}
-                      </div>
-                    </th>
-                  );
-                })}
+                {/* Column 3: Barangay */}
+                <th
+                  className="py-3.5 px-4 border-r border-stone-200 cursor-pointer hover:bg-stone-200/50"
+                  onClick={() => {
+                    setSortFieldKey('barangay');
+                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Barangay</span>
+                    {sortFieldKey === 'barangay' && (
+                      <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
 
-                {/* Status Column */}
+                {/* Column 4: Birth Date */}
+                <th
+                  className="py-3.5 px-4 border-r border-stone-200 cursor-pointer hover:bg-stone-200/50"
+                  onClick={() => {
+                    setSortFieldKey('birthDate');
+                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Birth Date</span>
+                    {sortFieldKey === 'birthDate' && (
+                      <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+
+                {/* Column 5: Age (Automatically Calculated) */}
+                <th
+                  className="py-3.5 px-4 border-r border-stone-200 cursor-pointer hover:bg-stone-200/50"
+                  onClick={() => {
+                    setSortFieldKey('age');
+                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Age (Calc)</span>
+                    {sortFieldKey === 'age' && (
+                      <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+
+                {/* Column 6: Estimated Weight (Automatically Calculated) */}
+                <th
+                  className="py-3.5 px-4 border-r border-stone-200 cursor-pointer hover:bg-stone-200/50"
+                  onClick={() => {
+                    setSortFieldKey('estimatedWeight');
+                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Est. Weight</span>
+                    {sortFieldKey === 'estimatedWeight' && (
+                      <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+
+                {/* Column 7: Actual Weight */}
+                <th
+                  className="py-3.5 px-4 border-r border-stone-200 cursor-pointer hover:bg-stone-200/50"
+                  onClick={() => {
+                    setSortFieldKey('actualWeight');
+                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Actual Weight</span>
+                    {sortFieldKey === 'actualWeight' && (
+                      <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+
+                {/* Column 8: Swine Type */}
+                <th
+                  className="py-3.5 px-4 border-r border-stone-200 cursor-pointer hover:bg-stone-200/50"
+                  onClick={() => {
+                    setSortFieldKey('swineType');
+                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Swine Type</span>
+                    {sortFieldKey === 'swineType' && (
+                      <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+
+                {/* Column 9: Farm Scale (Automatically Classified) */}
+                <th
+                  className="py-3.5 px-4 border-r border-stone-200 cursor-pointer hover:bg-stone-200/50"
+                  onClick={() => {
+                    setSortFieldKey('farmScale');
+                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Farm Scale</span>
+                    {sortFieldKey === 'farmScale' && (
+                      <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+
+                {/* Column 10: ASF Zone */}
+                <th
+                  className="py-3.5 px-4 border-r border-stone-200 cursor-pointer hover:bg-stone-200/50"
+                  onClick={() => {
+                    setSortFieldKey('asfZone');
+                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>ASF Zone</span>
+                    {sortFieldKey === 'asfZone' && (
+                      <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+
+                {/* Column 11: Biosecurity Warning */}
                 <th className="py-3.5 px-4 border-r border-stone-200 text-center">
-                  Market Status
+                  Biosecurity
                 </th>
 
-                {/* Actions (Sticky Right) */}
+                {/* Column 12: Status */}
+                <th
+                  className="py-3.5 px-4 border-r border-stone-200 text-center cursor-pointer hover:bg-stone-200/50"
+                  onClick={() => {
+                    setSortFieldKey('status');
+                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                  }}
+                >
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span>Status</span>
+                    {sortFieldKey === 'status' && (
+                      <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+
+                {/* Column 13: Sticky Actions */}
                 <th className="py-3.5 px-4 text-right sticky right-0 bg-stone-100/95 z-10 border-l border-stone-200 shadow-2xs">
                   Actions
                 </th>
               </tr>
             </thead>
+
             <tbody className="divide-y divide-stone-200">
-              {sortedRecords.length === 0 ? (
+              {paginatedRecords.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={displayedActiveFields.length + 3}
-                    className="py-12 text-center text-stone-400 text-sm"
-                  >
+                  <td colSpan={13} className="py-12 text-center text-stone-400 text-sm">
                     No swine records found matching your filters.
                   </td>
                 </tr>
               ) : (
-                sortedRecords.map(swine => {
-                  return (
-                    <tr key={swine.id} className="hover:bg-emerald-50/40 transition group">
-                      {/* Frozen Column 1: Ear Tag & Photo */}
-                      <td className="py-3 px-4 sticky left-0 bg-white group-hover:bg-emerald-50/90 z-10 border-r border-stone-200">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={swine.photoUrl || '/icon.svg'}
-                            alt="Swine"
-                            className="w-10 h-10 rounded-lg object-cover border border-stone-200 shadow-2xs shrink-0"
-                          />
-                          <div>
-                            <span className="font-mono font-bold text-emerald-950 block text-xs">
-                              {swine.earTagNo}
-                            </span>
-                            <span className="text-[10px] text-stone-400">
-                              {new Date(swine.registeredAt).toLocaleDateString()}
-                            </span>
-                          </div>
+                paginatedRecords.map(swine => (
+                  <tr key={swine.id} className="hover:bg-emerald-50/40 transition group">
+                    {/* Column 1: Pig ID Tag (Immutable Read-only) */}
+                    <td className="py-3 px-4 sticky left-0 bg-white group-hover:bg-emerald-50/90 z-10 border-r border-stone-200">
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={swine.photoUrl || '/icon.svg'}
+                          alt="Swine"
+                          className="w-9 h-9 rounded-lg object-cover border border-stone-200 shadow-2xs shrink-0"
+                        />
+                        <div>
+                          <span className="font-mono font-black text-emerald-950 block text-xs flex items-center gap-1">
+                            <Lock className="w-2.5 h-2.5 text-stone-400" />
+                            {swine.computedPigId}
+                          </span>
+                          <span className="text-[10px] text-stone-400 block">
+                            Reg: {new Date(swine.registeredAt).toLocaleDateString()}
+                          </span>
                         </div>
-                      </td>
+                      </div>
+                    </td>
 
-                      {/* Column 2: Farmer & Barangay */}
-                      <td className="py-3 px-4 border-r border-stone-200">
-                        <div className="font-bold text-stone-900">{swine.farmerName}</div>
-                        <div className="text-[11px] text-stone-500 font-medium">
-                          Brgy. {swine.barangay}
-                        </div>
-                        {swine.farmerContact && (
-                          <div className="text-[10px] text-stone-400">{swine.farmerContact}</div>
-                        )}
-                      </td>
+                    {/* Column 2: Farmer */}
+                    <td className="py-3 px-4 border-r border-stone-200">
+                      <div className="font-bold text-stone-900">{swine.farmerName}</div>
+                      {swine.farmerContact && (
+                        <div className="text-[10px] text-stone-400 font-mono">{swine.farmerContact}</div>
+                      )}
+                    </td>
 
-                      {/* Dynamic Field Values Rendered Automatically */}
-                      {displayedActiveFields.map(item => {
-                        if (
-                          item.field.id === 'fld_ear_tag' ||
-                          item.field.id === 'fld_farmer_name'
-                        ) {
-                          return null;
-                        }
+                    {/* Column 3: Barangay */}
+                    <td className="py-3 px-4 border-r border-stone-200">
+                      <span className="font-semibold text-stone-800">Brgy. {swine.barangay}</span>
+                    </td>
 
-                        const rawVal = getFieldValue(swine, item.field);
-                        const formatted = formatFieldValue(rawVal, item.field);
+                    {/* Column 4: Birth Date */}
+                    <td className="py-3 px-4 border-r border-stone-200 text-stone-600">
+                      {swine.birthDate ? (
+                        <span>{new Date(swine.birthDate).toLocaleDateString()}</span>
+                      ) : (
+                        <span className="text-stone-400 italic">Not set</span>
+                      )}
+                    </td>
 
-                        // Specialized formatting for specific types
-                        if (item.field.id === 'fld_weight_kg') {
-                          return (
-                            <td key={item.field.id} className="py-3 px-4 border-r border-stone-200">
-                              <span className="font-bold text-stone-900">{swine.weightKg} kg</span>
-                            </td>
-                          );
-                        }
+                    {/* Column 5: Age (Automatically Calculated) */}
+                    <td className="py-3 px-4 border-r border-stone-200">
+                      <span className="font-semibold text-stone-800 bg-stone-100 px-2 py-0.5 rounded text-[11px]">
+                        {swine.computedAgeLabel}
+                      </span>
+                    </td>
 
-                        if (item.field.id === 'fld_estimated_price') {
-                          return (
-                            <td key={item.field.id} className="py-3 px-4 border-r border-stone-200">
-                              <span className="font-bold text-emerald-800">
-                                ₱{(swine.estimatedPricePhp || 0).toLocaleString()}
-                              </span>
-                            </td>
-                          );
-                        }
+                    {/* Column 6: Estimated Weight (Automated Range) */}
+                    <td className="py-3 px-4 border-r border-stone-200">
+                      <span className="font-bold text-emerald-900 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-[11px]">
+                        {swine.computedEstimatedWeight}
+                      </span>
+                    </td>
 
-                        if (item.field.type === 'yes_no' || typeof rawVal === 'boolean') {
-                          return (
-                            <td key={item.field.id} className="py-3 px-4 border-r border-stone-200">
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                  rawVal
-                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                    : 'bg-stone-100 text-stone-600'
-                                }`}
-                              >
-                                {rawVal ? '✓ Yes' : '✕ No'}
-                              </span>
-                            </td>
-                          );
-                        }
+                    {/* Column 7: Actual Weight */}
+                    <td className="py-3 px-4 border-r border-stone-200">
+                      {swine.computedActualWeight ? (
+                        <span className="font-bold text-stone-900">
+                          {swine.computedActualWeight} kg
+                        </span>
+                      ) : (
+                        <span className="text-stone-400 italic">—</span>
+                      )}
+                    </td>
 
-                        if (item.field.type === 'image' && rawVal) {
-                          return (
-                            <td key={item.field.id} className="py-3 px-4 border-r border-stone-200">
-                              <img
-                                src={rawVal}
-                                alt="Field Attachment"
-                                className="w-8 h-8 rounded object-cover border"
-                              />
-                            </td>
-                          );
-                        }
+                    {/* Column 8: Swine Type */}
+                    <td className="py-3 px-4 border-r border-stone-200">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-100 text-stone-800 border border-stone-200">
+                        {swine.swineType === 'boar'
+                          ? 'Breeding Boar'
+                          : swine.swineType === 'sow'
+                          ? 'Breeding Sow'
+                          : swine.swineType === 'piglet'
+                          ? 'Piglet'
+                          : swine.swineType === 'grower'
+                          ? 'Grower'
+                          : 'Finisher'}
+                      </span>
+                    </td>
 
-                        return (
-                          <td
-                            key={item.field.id}
-                            className="py-3 px-4 border-r border-stone-200 text-stone-700"
-                          >
-                            <span className="truncate max-w-[200px] block" title={String(formatted)}>
-                              {formatted}
-                            </span>
-                          </td>
-                        );
-                      })}
+                    {/* Column 9: Farm Scale */}
+                    <td className="py-3 px-4 border-r border-stone-200">
+                      {getFarmScaleBadge(swine.computedFarmScale)}
+                    </td>
 
-                      {/* Market Status */}
-                      <td className="py-3 px-4 border-r border-stone-200 text-center">
-                        {swine.status === 'sold' ? (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-stone-200 text-stone-700">
-                            SOLD
-                          </span>
-                        ) : swine.readyToSell ? (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-1">
-                            <Sparkles className="w-2.5 h-2.5 text-amber-600" /> READY
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            GROWING
-                          </span>
-                        )}
-                      </td>
+                    {/* Column 10: ASF Zone */}
+                    <td className="py-3 px-4 border-r border-stone-200">
+                      {getAsfZoneBadge(swine.computedAsfZone)}
+                    </td>
 
-                      {/* Sticky Actions */}
-                      <td className="py-3 px-4 text-right sticky right-0 bg-white group-hover:bg-emerald-50/90 z-10 border-l border-stone-200">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/* Quick View Details Modal */}
+                    {/* Column 11: Biosecurity Warning */}
+                    <td className="py-3 px-4 border-r border-stone-200 text-center">
+                      {swine.computedHasWarning ? (
+                        <span
+                          className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-100 text-red-900 border border-red-300 inline-flex items-center gap-1 animate-pulse"
+                          title={`Breeding Boar in ${swine.computedAsfZone} Zone. Movement restrictions apply.`}
+                        >
+                          <AlertTriangle className="w-3 h-3 text-red-600" />
+                          <span>BIOSECURITY</span>
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-stone-400 font-medium">—</span>
+                      )}
+                    </td>
+
+                    {/* Column 12: Status */}
+                    <td className="py-3 px-4 border-r border-stone-200 text-center">
+                      {swine.status === 'sold' ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-200 text-stone-700">
+                          SOLD
+                        </span>
+                      ) : swine.computedIsReady ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-1">
+                          <Sparkles className="w-2.5 h-2.5 text-amber-600" /> READY
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          GROWING
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Column 13: Actions */}
+                    <td className="py-3 px-4 text-right sticky right-0 bg-white group-hover:bg-emerald-50/90 z-10 border-l border-stone-200">
+                      <div className="flex items-center justify-end gap-1">
+                        {/* View Details */}
+                        <button
+                          onClick={() => setViewingRecord(swine)}
+                          className="p-1.5 rounded-lg text-emerald-800 hover:bg-emerald-100 transition cursor-pointer"
+                          title="View Full Record Details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+
+                        {/* View on GIS Map */}
+                        {onViewOnMap && (
                           <button
-                            onClick={() => setViewingRecord(swine)}
-                            className="p-1.5 rounded-lg text-emerald-800 hover:bg-emerald-100 transition cursor-pointer"
-                            title="View Full Form Data"
+                            onClick={() => onViewOnMap(swine)}
+                            className="p-1.5 rounded-lg text-teal-700 hover:bg-teal-100 transition cursor-pointer"
+                            title="Locate on Hinunangan GIS Map"
                           >
-                            <Eye className="w-4 h-4" />
+                            <MapPin className="w-4 h-4" />
                           </button>
+                        )}
 
-                          {/* Certificate */}
+                        {/* Print Single Record */}
+                        <button
+                          onClick={() => setPrintSingleRecord(swine)}
+                          className="p-1.5 rounded-lg text-stone-600 hover:bg-stone-100 transition cursor-pointer"
+                          title="Print Swine Record Certificate"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+
+                        {/* Edit Record */}
+                        {currentRole !== 'agent' && (
                           <button
-                            onClick={() => onIssueCertificate(swine)}
-                            className="p-1.5 rounded-lg text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
-                            title="Generate Barangay Certificate"
+                            onClick={() => onEditSwine(swine)}
+                            className="p-1.5 rounded-lg text-stone-600 hover:bg-stone-100 transition cursor-pointer"
+                            title="Edit Record (Pig ID is locked)"
                           >
-                            <FileText className="w-4 h-4" />
+                            <Edit className="w-4 h-4" />
                           </button>
+                        )}
 
-                          {/* Toggle Ready To Sell */}
+                        {/* Toggle Ready To Sell */}
+                        {currentRole !== 'agent' && swine.status !== 'sold' && (
                           <button
                             onClick={() => handleToggleSell(swine)}
                             className={`p-1.5 rounded-lg transition cursor-pointer ${
@@ -953,28 +1433,30 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                           >
                             <ShoppingBag className="w-4 h-4" />
                           </button>
+                        )}
 
-                          {/* Mark Sold */}
-                          {swine.status !== 'sold' && (
-                            <button
-                              onClick={() => handleMarkSold(swine)}
-                              className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-100 transition cursor-pointer"
-                              title="Mark as Officially Sold / Disposed"
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                            </button>
-                          )}
-
-                          {/* Edit */}
+                        {/* Mark Officially Sold */}
+                        {currentRole !== 'agent' && swine.status !== 'sold' && (
                           <button
-                            onClick={() => onEditSwine(swine)}
-                            className="p-1.5 rounded-lg text-stone-600 hover:bg-stone-100 transition cursor-pointer"
-                            title="Edit Record"
+                            onClick={() => handleMarkSold(swine)}
+                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-100 transition cursor-pointer"
+                            title="Mark as Officially Sold"
                           >
-                            <Edit className="w-4 h-4" />
+                            <CheckCircle className="w-4 h-4" />
                           </button>
+                        )}
 
-                          {/* Archive */}
+                        {/* Issue Certificate */}
+                        <button
+                          onClick={() => onIssueCertificate(swine)}
+                          className="p-1.5 rounded-lg text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
+                          title="Generate Barangay Certificate"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
+
+                        {/* Archive / Restore */}
+                        {currentRole !== 'agent' && (
                           <button
                             onClick={() => handleToggleArchive(swine.id)}
                             className="p-1.5 rounded-lg text-stone-500 hover:bg-stone-100 transition cursor-pointer"
@@ -986,32 +1468,83 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                               <Archive className="w-4 h-4" />
                             )}
                           </button>
+                        )}
 
-                          {/* Delete */}
+                        {/* Delete Permanently (Requires Confirmation Modal) */}
+                        {currentRole === 'admin' && (
                           <button
-                            onClick={() => handleDelete(swine.id, swine.earTagNo)}
+                            onClick={() => setDeleteConfirmRecord(swine)}
                             className="p-1.5 rounded-lg text-red-500 hover:bg-red-100 transition cursor-pointer"
-                            title="Delete Permanently"
+                            title="Delete Swine Record"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Footer */}
+        {totalRecords > 0 && (
+          <div className="px-4 py-3 bg-stone-50 border-t border-stone-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="text-stone-600 font-medium">
+              Page <strong>{validCurrentPage}</strong> of <strong>{totalPages}</strong> ({totalRecords} records)
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={validCurrentPage <= 1}
+                onClick={() => setCurrentPage(1)}
+                className="px-2.5 py-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
+              >
+                First
+              </button>
+              <button
+                type="button"
+                disabled={validCurrentPage <= 1}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                className="p-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <span className="px-3 py-1 font-bold text-emerald-900 bg-emerald-100 rounded-lg">
+                {validCurrentPage}
+              </span>
+
+              <button
+                type="button"
+                disabled={validCurrentPage >= totalPages}
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                className="p-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                disabled={validCurrentPage >= totalPages}
+                onClick={() => setCurrentPage(totalPages)}
+                className="px-2.5 py-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
+              >
+                Last
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Comprehensive Record Detail Modal (Full Registry Form Fields View) */}
+      {/* ===================== VIEW DETAILS MODAL ===================== */}
       {viewingRecord && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
           <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden my-6 border border-stone-200 animate-fadeIn">
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-emerald-900 to-teal-900 text-white p-6 flex items-center justify-between">
+            <div className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-teal-900 text-white p-6 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <img
                   src={viewingRecord.photoUrl || '/icon.svg'}
@@ -1019,15 +1552,21 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   className="w-14 h-14 rounded-2xl object-cover border-2 border-emerald-400/50 shadow-md"
                 />
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-black text-lg text-emerald-200">
-                      {viewingRecord.earTagNo}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono font-black text-lg text-emerald-200 flex items-center gap-1.5">
+                      <Lock className="w-4 h-4 text-emerald-400" />
+                      {viewingRecord.pigIdTag || viewingRecord.earTagNo}
                     </span>
+                    {getFarmScaleBadge(
+                      viewingRecord.farmScale ||
+                        classifyFarmScale(viewingRecord.penCapacity || (viewingRecord.farmType === 'commercial' ? 50 : 5))
+                    )}
+                    {getAsfZoneBadge(getBarangayASFZone(viewingRecord.barangay, barangays))}
                     <span className="bg-emerald-800 text-emerald-100 px-2 py-0.5 rounded-full text-[10px] font-bold">
                       {viewingRecord.readyToSell ? 'READY FOR SALE' : viewingRecord.status.toUpperCase()}
                     </span>
                   </div>
-                  <h3 className="text-sm font-bold text-white mt-0.5">
+                  <h3 className="text-sm font-bold text-white mt-1">
                     {viewingRecord.farmerName} • Brgy. {viewingRecord.barangay}
                   </h3>
                 </div>
@@ -1035,14 +1574,112 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               <button
                 type="button"
                 onClick={() => setViewingRecord(null)}
-                className="text-white/70 hover:text-white p-2 rounded-xl hover:bg-white/10 transition"
+                className="text-white/70 hover:text-white p-2 rounded-xl hover:bg-white/10 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Modal Body: Render Section by Section matching Swine Registry Form */}
+            {/* Modal Body */}
             <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto text-xs text-stone-800">
+              {/* Biosecurity Warning Banner if applicable */}
+              {shouldShowASFWarning(
+                viewingRecord.swineType,
+                getBarangayASFZone(viewingRecord.barangay, barangays)
+              ) && (
+                <div className="bg-red-50 border-2 border-red-400 p-4 rounded-2xl space-y-2 animate-fadeIn shadow-2xs">
+                  <div className="flex items-center gap-2 text-red-900 font-black text-sm">
+                    <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+                    <span>⚠ BIOSECURITY WARNING</span>
+                  </div>
+                  <p className="text-xs text-red-800 font-semibold leading-relaxed">
+                    This swine is classified as a <strong>BREEDING_BOAR</strong> and is currently associated with a{' '}
+                    <strong>{getBarangayASFZone(viewingRecord.barangay, barangays)}</strong> ASF zone.
+                    Review applicable biosecurity requirements and local veterinary quarantine protocols before movement or transport.
+                  </p>
+                </div>
+              )}
+
+              {/* Core Recalculated Identification Block */}
+              <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200 space-y-3">
+                <div className="flex items-center gap-2 border-b border-stone-200 pb-2">
+                  <Lock className="w-4 h-4 text-emerald-700" />
+                  <h4 className="font-black text-stone-900 text-xs uppercase tracking-wide">
+                    Immutable Swine Identification & Core Metrics
+                  </h4>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  <div className="bg-white p-3 rounded-xl border border-stone-200/80 shadow-2xs">
+                    <span className="text-[10px] text-stone-500 font-bold block">Pig ID Tag (Immutable)</span>
+                    <span className="font-mono font-black text-emerald-950 text-sm block mt-0.5">
+                      🔒 {viewingRecord.pigIdTag || viewingRecord.earTagNo}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-stone-200/80 shadow-2xs">
+                    <span className="text-[10px] text-stone-500 font-bold block">Farmer Name</span>
+                    <span className="font-bold text-stone-900 block mt-0.5">{viewingRecord.farmerName}</span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-stone-200/80 shadow-2xs">
+                    <span className="text-[10px] text-stone-500 font-bold block">Registered Barangay</span>
+                    <span className="font-bold text-stone-900 block mt-0.5">Brgy. {viewingRecord.barangay}</span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-stone-200/80 shadow-2xs">
+                    <span className="text-[10px] text-stone-500 font-bold block">Birth Date</span>
+                    <span className="font-bold text-stone-900 block mt-0.5">
+                      {viewingRecord.birthDate ? new Date(viewingRecord.birthDate).toLocaleDateString() : 'Not recorded'}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-stone-200/80 shadow-2xs">
+                    <span className="text-[10px] text-stone-500 font-bold block">Recalculated Age</span>
+                    <span className="font-bold text-stone-900 block mt-0.5">
+                      {(() => {
+                        const age = calculateSwineAge(viewingRecord.birthDate);
+                        return age.isValid
+                          ? `${age.days} days / ${age.months === 1 ? '1 month' : `${age.months} months`}`
+                          : `${viewingRecord.ageDays || 0} days / ${viewingRecord.ageMonths || 0} months`;
+                      })()}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-stone-200/80 shadow-2xs">
+                    <span className="text-[10px] text-stone-500 font-bold block">Estimated Weight (Auto)</span>
+                    <span className="font-bold text-emerald-900 block mt-0.5">
+                      {(() => {
+                        const age = calculateSwineAge(viewingRecord.birthDate);
+                        return getEstimatedWeightRange(age.isValid ? age.days : (viewingRecord.ageDays || 0));
+                      })()}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-stone-200/80 shadow-2xs">
+                    <span className="text-[10px] text-stone-500 font-bold block">Actual Weight</span>
+                    <span className="font-bold text-stone-900 block mt-0.5">
+                      {viewingRecord.actualWeightKg ? `${viewingRecord.actualWeightKg} kg` : viewingRecord.weightKg ? `${viewingRecord.weightKg} kg` : 'Not recorded'}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-stone-200/80 shadow-2xs">
+                    <span className="text-[10px] text-stone-500 font-bold block">Swine Classification</span>
+                    <span className="font-bold text-stone-900 block mt-0.5 uppercase">
+                      {viewingRecord.swineType}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-stone-200/80 shadow-2xs">
+                    <span className="text-[10px] text-stone-500 font-bold block">Market Status</span>
+                    <span className="font-bold text-amber-900 block mt-0.5">
+                      {viewingRecord.readyToSell ? '🌟 Ready for Market Sale' : viewingRecord.status.toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dynamic Form Sections from Schema */}
               {formSchema.sections
                 .filter(sec => sec.visible !== false)
                 .map(section => {
@@ -1081,22 +1718,52 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             </div>
 
             {/* Modal Footer Actions */}
-            <div className="bg-stone-100 px-6 py-3.5 border-t border-stone-200 flex items-center justify-between gap-3">
+            <div className="bg-stone-100 px-6 py-3.5 border-t border-stone-200 flex flex-wrap items-center justify-between gap-3">
               <span className="text-[11px] text-stone-500">
-                Registered on {new Date(viewingRecord.registeredAt).toLocaleString()} by {viewingRecord.registeredBy || 'DA Inspector'}
+                Registered on {new Date(viewingRecord.registeredAt).toLocaleString()} by {viewingRecord.registeredBy || 'DA Extension Worker'}
               </span>
-              <div className="flex items-center gap-2">
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {onViewOnMap && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rec = viewingRecord;
+                      setViewingRecord(null);
+                      onViewOnMap(rec);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-teal-700 hover:bg-teal-600 text-white font-bold flex items-center gap-1.5 transition cursor-pointer text-xs shadow-2xs"
+                  >
+                    <MapPin className="w-3.5 h-3.5" /> View on Map
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
                     const rec = viewingRecord;
                     setViewingRecord(null);
-                    onEditSwine(rec);
+                    setPrintSingleRecord(rec);
                   }}
-                  className="px-3.5 py-1.5 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold flex items-center gap-1.5 transition cursor-pointer text-xs"
+                  className="px-3 py-1.5 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold flex items-center gap-1.5 transition cursor-pointer text-xs"
                 >
-                  <Edit className="w-3.5 h-3.5" /> Edit Record
+                  <Printer className="w-3.5 h-3.5" /> Print Record
                 </button>
+
+                {currentRole !== 'agent' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rec = viewingRecord;
+                      setViewingRecord(null);
+                      onEditSwine(rec);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold flex items-center gap-1.5 transition cursor-pointer text-xs"
+                  >
+                    <Edit className="w-3.5 h-3.5" /> Edit Record
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
@@ -1114,18 +1781,250 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         </div>
       )}
 
-      {/* Printable PDF Report Modal */}
+      {/* ===================== DELETE CONFIRMATION MODAL ===================== */}
+      {deleteConfirmRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-stone-200 space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center text-red-600 mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="text-base font-black text-stone-900">Delete Swine Record?</h3>
+              <p className="text-xs text-stone-500 font-medium">
+                This action is permanent and cannot be undone.
+              </p>
+            </div>
+
+            <div className="bg-stone-50 p-3.5 rounded-2xl border border-stone-200 text-center space-y-1">
+              <div className="font-mono font-black text-sm text-stone-900">
+                🔒 {deleteConfirmRecord.pigIdTag || deleteConfirmRecord.earTagNo}
+              </div>
+              <div className="text-xs font-bold text-stone-700">
+                {deleteConfirmRecord.farmerName}
+              </div>
+              <div className="text-[11px] text-stone-500">
+                Brgy. {deleteConfirmRecord.barangay}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmRecord(null)}
+                className="flex-1 py-2 rounded-xl border border-stone-300 text-stone-700 font-bold hover:bg-stone-50 transition cursor-pointer text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="flex-1 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition cursor-pointer text-xs shadow-sm"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================== PRINT SINGLE SWINE RECORD MODAL ===================== */}
+      {printSingleRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-stone-200 overflow-hidden my-6 animate-fadeIn">
+            {/* Action Bar */}
+            <div className="bg-stone-900 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Printer className="w-4 h-4 text-emerald-400" />
+                <span className="font-bold text-xs">Official Individual Swine Record Sheet</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                >
+                  <Printer className="w-3.5 h-3.5" /> Print Now
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrintSingleRecord(null)}
+                  className="text-stone-400 hover:text-white p-1 rounded cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Document Body */}
+            <div className="p-8 space-y-6 text-xs text-stone-800 printable-document bg-white">
+              {/* Header */}
+              <div className="text-center border-b-2 border-emerald-800 pb-4">
+                <div className="flex items-center justify-between gap-4 mb-2">
+                  <img src={reportLeftLogo} alt="Left Seal" className="w-16 h-16 object-contain" />
+                  <div className="flex-1">
+                    <p className="text-[11px] uppercase tracking-wider text-stone-600 font-medium">
+                      Republic of the Philippines • Province of Southern Leyte
+                    </p>
+                    <h2 className="text-base font-black text-emerald-950 tracking-tight">
+                      MUNICIPALITY OF HINUNANGAN
+                    </h2>
+                    <h3 className="text-xs font-bold text-emerald-800">
+                      OFFICE OF THE MUNICIPAL AGRICULTURIST
+                    </h3>
+                  </div>
+                  <img src={reportRightLogo} alt="Right Seal" className="w-16 h-16 object-contain" />
+                </div>
+                <h4 className="text-sm font-black uppercase text-stone-900 mt-3 tracking-wide">
+                  HINUNANGAN SWINE REGISTRY - OFFICIAL SWINE RECORD
+                </h4>
+              </div>
+
+              {/* Warning box if applicable */}
+              {shouldShowASFWarning(
+                printSingleRecord.swineType,
+                getBarangayASFZone(printSingleRecord.barangay, barangays)
+              ) && (
+                <div className="border-2 border-red-600 bg-red-50 p-3.5 rounded-xl text-red-900 font-bold space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-red-700">
+                    <AlertTriangle className="w-4 h-4 text-red-600" />
+                    <span>⚠ BIOSECURITY WARNING</span>
+                  </div>
+                  <p className="text-[11px] font-normal leading-tight">
+                    This swine is classified as a <strong>BREEDING_BOAR</strong> and is currently associated with a{' '}
+                    <strong>{getBarangayASFZone(printSingleRecord.barangay, barangays)}</strong> ASF zone.
+                    Review applicable biosecurity requirements before movement or transport.
+                  </p>
+                </div>
+              )}
+
+              {/* Data Grid matching Requirement 20 */}
+              <div className="grid grid-cols-2 gap-4 border border-stone-300 p-4 rounded-xl bg-stone-50/50">
+                <div>
+                  <span className="text-[10px] text-stone-500 font-bold block uppercase">Pig ID Tag (Immutable)</span>
+                  <span className="font-mono font-black text-sm text-emerald-950 block mt-0.5">
+                    {printSingleRecord.pigIdTag || printSingleRecord.earTagNo}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-stone-500 font-bold block uppercase">Farmer / Hog Raiser</span>
+                  <span className="font-bold text-stone-900 block mt-0.5">{printSingleRecord.farmerName}</span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-stone-500 font-bold block uppercase">Barangay</span>
+                  <span className="font-bold text-stone-900 block mt-0.5">Brgy. {printSingleRecord.barangay}</span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-stone-500 font-bold block uppercase">Birth Date</span>
+                  <span className="font-bold text-stone-900 block mt-0.5">
+                    {printSingleRecord.birthDate ? new Date(printSingleRecord.birthDate).toLocaleDateString() : 'Not recorded'}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-stone-500 font-bold block uppercase">Calculated Age</span>
+                  <span className="font-bold text-stone-900 block mt-0.5">
+                    {(() => {
+                      const age = calculateSwineAge(printSingleRecord.birthDate);
+                      return age.isValid
+                        ? `${age.days} days / ${age.months === 1 ? '1 month' : `${age.months} months`}`
+                        : `${printSingleRecord.ageDays || 0} days / ${printSingleRecord.ageMonths || 0} months`;
+                    })()}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-stone-500 font-bold block uppercase">Swine Type</span>
+                  <span className="font-bold text-stone-900 block mt-0.5 uppercase">
+                    {printSingleRecord.swineType === 'boar' ? 'BREEDING_BOAR' : printSingleRecord.swineType.toUpperCase()}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-stone-500 font-bold block uppercase">Estimated Weight (Automated)</span>
+                  <span className="font-bold text-emerald-900 block mt-0.5">
+                    {(() => {
+                      const age = calculateSwineAge(printSingleRecord.birthDate);
+                      return getEstimatedWeightRange(age.isValid ? age.days : (printSingleRecord.ageDays || 0));
+                    })()}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-stone-500 font-bold block uppercase">Actual Measured Weight</span>
+                  <span className="font-bold text-stone-900 block mt-0.5">
+                    {printSingleRecord.actualWeightKg ? `${printSingleRecord.actualWeightKg} kg` : printSingleRecord.weightKg ? `${printSingleRecord.weightKg} kg` : 'Not recorded'}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-stone-500 font-bold block uppercase">Farm Classification</span>
+                  <span className="font-bold text-stone-900 block mt-0.5">
+                    {printSingleRecord.farmScale || classifyFarmScale(printSingleRecord.penCapacity || (printSingleRecord.farmType === 'commercial' ? 50 : 5))}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-stone-500 font-bold block uppercase">Current ASF Zone</span>
+                  <span className="font-bold text-stone-900 block mt-0.5">
+                    {getBarangayASFZone(printSingleRecord.barangay, barangays)} ZONE
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-stone-500 font-bold block uppercase">Registry Status</span>
+                  <span className="font-bold text-stone-900 block mt-0.5 uppercase">
+                    {printSingleRecord.status}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-stone-500 font-bold block uppercase">Market Readiness</span>
+                  <span className="font-bold text-emerald-900 block mt-0.5">
+                    {printSingleRecord.readyToSell ? 'READY FOR SALE' : 'GROWING HERD'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Signatures Footer */}
+              <div className="pt-8 grid grid-cols-2 gap-8 text-center">
+                <div>
+                  <p className="text-stone-500 mb-8">Prepared & Inspected by:</p>
+                  <p className="font-bold border-t border-stone-400 pt-1 text-stone-900 uppercase">
+                    {currentUser?.name || 'Authorized DA Inspector'}
+                  </p>
+                  <p className="text-[10px] text-stone-500">Barangay Agricultural Extension Worker</p>
+                </div>
+                <div>
+                  <p className="text-stone-500 mb-8">Attested & Approved by:</p>
+                  <p className="font-bold border-t border-stone-400 pt-1 text-stone-900 uppercase">
+                    ENGR. ARNEL M. VASQUEZ
+                  </p>
+                  <p className="text-[10px] text-stone-500">
+                    Municipal Agricultural Officer (MAO) - Hinunangan
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================== TABLE PRINT REPORT MODAL ===================== */}
       {showPrintModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden my-6 border border-stone-200">
+          <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden my-6 border border-stone-200">
             {/* Top Bar */}
             <div className="bg-stone-900 text-white px-6 py-4 flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <Printer className="w-5 h-5 text-emerald-400" />
                 <div>
-                  <h3 className="font-bold text-sm">Print Official Registry Report (PDF Format)</h3>
+                  <h3 className="font-bold text-sm">Print Official Swine Registry Summary Report</h3>
                   <p className="text-[10px] text-stone-400">
-                    Official Municipal Agriculture Document with Customizable Logos & Dynamic Columns
+                    Official Municipal Agriculture Document with Customizable Logos & Recalculated Business Rules
                   </p>
                 </div>
               </div>
@@ -1177,7 +2076,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                  {/* Left Logo (DA) */}
                   <div className="bg-white p-3 rounded-xl border border-amber-200 space-y-2">
                     <span className="font-bold text-stone-800 block text-[11px]">
                       Left Header Logo (e.g. DA Emblem)
@@ -1209,7 +2107,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                     </div>
                   </div>
 
-                  {/* Right Logo (LGU) */}
                   <div className="bg-white p-3 rounded-xl border border-amber-200 space-y-2">
                     <span className="font-bold text-stone-800 block text-[11px]">
                       Right Header Logo (e.g. Municipal Seal)
@@ -1272,10 +2169,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   <img src={reportLeftLogo} alt="Left Seal" className="w-16 h-16 object-contain" />
                   <div className="flex-1">
                     <p className="text-[11px] uppercase tracking-wider text-stone-600 font-medium">
-                      Republic of the Philippines
-                    </p>
-                    <p className="text-[11px] uppercase tracking-wider text-stone-600 font-medium">
-                      Province of Southern Leyte
+                      Republic of the Philippines • Province of Southern Leyte
                     </p>
                     <h2 className="text-base font-black text-emerald-950 tracking-tight">
                       MUNICIPALITY OF HINUNANGAN
@@ -1301,14 +2195,16 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   <span className="font-bold text-base text-stone-900">{sortedRecords.length} Heads</span>
                 </div>
                 <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200">
-                  <span className="text-amber-700 text-[10px] block">Ready for Market Sale</span>
+                  <span className="text-amber-700 text-[10px] block">Ready for Market</span>
                   <span className="font-bold text-base text-amber-900">
-                    {sortedRecords.filter(s => s.readyToSell).length} Heads
+                    {sortedRecords.filter(s => s.computedIsReady).length} Heads
                   </span>
                 </div>
-                <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                  <span className="text-emerald-700 text-[10px] block">ASF Safe / Green Zone</span>
-                  <span className="font-bold text-base text-emerald-900">100% Verified</span>
+                <div className="bg-red-50 p-2.5 rounded-xl border border-red-200">
+                  <span className="text-red-700 text-[10px] block">Biosecurity Alerts</span>
+                  <span className="font-bold text-base text-red-900">
+                    {sortedRecords.filter(s => s.computedHasWarning).length} Boars
+                  </span>
                 </div>
                 <div className="bg-stone-50 p-2.5 rounded-xl border border-stone-200">
                   <span className="text-stone-500 text-[10px] block">Est. Market Value</span>
@@ -1318,17 +2214,22 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 </div>
               </div>
 
-              {/* Report Table with Dynamic Columns */}
+              {/* Report Table */}
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse border border-stone-300 text-[10px]">
+                <table className="w-full text-left border-collapse border border-stone-300 text-[9.5px]">
                   <thead className="bg-stone-100 font-bold text-stone-800 border-b border-stone-300">
                     <tr>
                       <th className="p-1.5 border border-stone-300 text-center w-8">#</th>
-                      {(activePrintColumns.length > 0 ? activePrintColumns : activeFields).map(col => (
-                        <th key={col.field.id} className="p-1.5 border border-stone-300 whitespace-nowrap">
-                          {col.field.label}
-                        </th>
-                      ))}
+                      <th className="p-1.5 border border-stone-300">Pig ID Tag</th>
+                      <th className="p-1.5 border border-stone-300">Farmer</th>
+                      <th className="p-1.5 border border-stone-300">Barangay</th>
+                      <th className="p-1.5 border border-stone-300">Age</th>
+                      <th className="p-1.5 border border-stone-300">Est. Weight</th>
+                      <th className="p-1.5 border border-stone-300">Actual Weight</th>
+                      <th className="p-1.5 border border-stone-300">Type</th>
+                      <th className="p-1.5 border border-stone-300">Farm Scale</th>
+                      <th className="p-1.5 border border-stone-300">ASF Zone</th>
+                      <th className="p-1.5 border border-stone-300">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-200">
@@ -1337,26 +2238,36 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                         <td className="p-1.5 border border-stone-300 text-center font-mono text-stone-500">
                           {idx + 1}
                         </td>
-                        {(activePrintColumns.length > 0 ? activePrintColumns : activeFields).map(col => {
-                          const rawVal = getFieldValue(s, col.field);
-                          const formatted = formatFieldValue(rawVal, col.field);
-                          const isEarTag = col.field.id === 'fld_ear_tag';
-                          const isFarmer = col.field.id === 'fld_farmer_name';
-                          return (
-                            <td
-                              key={col.field.id}
-                              className={`p-1.5 border border-stone-300 ${
-                                isEarTag
-                                  ? 'font-mono font-bold text-emerald-900'
-                                  : isFarmer
-                                  ? 'font-bold text-stone-900'
-                                  : 'text-stone-700'
-                              }`}
-                            >
-                              {formatted || '—'}
-                            </td>
-                          );
-                        })}
+                        <td className="p-1.5 border border-stone-300 font-mono font-bold text-emerald-950">
+                          {s.computedPigId}
+                        </td>
+                        <td className="p-1.5 border border-stone-300 font-bold text-stone-900">
+                          {s.farmerName}
+                        </td>
+                        <td className="p-1.5 border border-stone-300">
+                          {s.barangay}
+                        </td>
+                        <td className="p-1.5 border border-stone-300 font-medium">
+                          {s.computedAgeLabel}
+                        </td>
+                        <td className="p-1.5 border border-stone-300 font-semibold text-emerald-900">
+                          {s.computedEstimatedWeight}
+                        </td>
+                        <td className="p-1.5 border border-stone-300">
+                          {s.computedActualWeight ? `${s.computedActualWeight} kg` : '—'}
+                        </td>
+                        <td className="p-1.5 border border-stone-300 uppercase">
+                          {s.swineType}
+                        </td>
+                        <td className="p-1.5 border border-stone-300">
+                          {s.computedFarmScale}
+                        </td>
+                        <td className="p-1.5 border border-stone-300 font-bold">
+                          {s.computedAsfZone}
+                        </td>
+                        <td className="p-1.5 border border-stone-300 font-bold">
+                          {s.computedIsReady ? 'READY TO SELL' : s.status.toUpperCase()}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1387,16 +2298,13 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         </div>
       )}
 
-      {/* Select Columns to Print Modal */}
+      {/* ===================== SELECT COLUMNS TO PRINT MODAL ===================== */}
       {showPrintSelectModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
           <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[90vh]">
-            {/* Modal Header */}
             <div className="p-5 bg-gradient-to-r from-emerald-900 to-teal-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center">
-                  <Printer className="w-5 h-5 text-emerald-300" />
-                </div>
+                <Printer className="w-5 h-5 text-emerald-300" />
                 <div>
                   <h3 className="font-bold text-sm">Select Columns to Print</h3>
                   <p className="text-[11px] text-emerald-200/80">
@@ -1413,7 +2321,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               </button>
             </div>
 
-            {/* Validation Message */}
             {printValidationError && (
               <div className="mx-6 mt-4 p-3 rounded-2xl bg-red-50 border border-red-200 flex items-center gap-2 text-red-800 text-xs font-bold">
                 <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
@@ -1421,7 +2328,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               </div>
             )}
 
-            {/* Selection Status & Controls */}
             <div className="px-6 py-3 bg-stone-50 border-b border-stone-200 flex items-center justify-between text-xs">
               <span className="font-bold text-stone-700">
                 Selected Columns:{' '}
@@ -1446,9 +2352,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setPrintSelectedColumnIds({});
-                  }}
+                  onClick={() => setPrintSelectedColumnIds({})}
                   className="px-2.5 py-1 rounded-lg bg-white border border-stone-300 hover:bg-stone-100 text-stone-700 font-semibold cursor-pointer text-xs transition"
                 >
                   Clear All
@@ -1456,7 +2360,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               </div>
             </div>
 
-            {/* Checkbox List Organized by Form Sections */}
             <div className="p-6 overflow-y-auto space-y-4 flex-1">
               {formSchema.sections
                 .filter(sec => sec.isActive)
@@ -1494,11 +2397,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                                 className="w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
                               />
                               <span className="flex-1 truncate">{item.field.label}</span>
-                              {item.field.isCustom && (
-                                <span className="text-[9px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">
-                                  Custom
-                                </span>
-                              )}
                             </label>
                           );
                         })}
@@ -1508,7 +2406,6 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 })}
             </div>
 
-            {/* Modal Footer Actions */}
             <div className="p-4 bg-stone-50 border-t border-stone-200 flex items-center justify-end gap-2.5">
               <button
                 type="button"
@@ -1541,7 +2438,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         </div>
       )}
 
-      {/* Import Swine Modal */}
+      {/* ===================== IMPORT MODAL ===================== */}
       <ImportSwineModal
         isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}

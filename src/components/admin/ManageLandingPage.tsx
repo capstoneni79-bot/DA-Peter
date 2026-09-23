@@ -302,7 +302,7 @@ export const ManageLandingPage: React.FC<ManageLandingPageProps> = ({
               }`}
             >
               {/* Tab Navigation Menu (Single row scrollable with quick arrows) */}
-              <div className="bg-white p-2 rounded-2xl border border-stone-200 shadow-2xs">
+              <div className="bg-white p-2 rounded-2xl border border-slate-200/90 shadow-2xs">
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin scroll-smooth">
                   {CMS_NAV_TABS.map((tab, idx) => {
                     const IconComponent = tab.icon;
@@ -315,18 +315,18 @@ export const ManageLandingPage: React.FC<ManageLandingPageProps> = ({
                           setActiveTab(tab.id);
                           setMediaPickerTarget(null);
                         }}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0 ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0 active:scale-[0.98] ${
                           isActive
-                            ? 'bg-emerald-800 text-white shadow-xs'
-                            : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+                            ? 'bg-emerald-800 text-white shadow-2xs font-black'
+                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                         }`}
                       >
                         <IconComponent className="w-3.5 h-3.5 shrink-0" />
                         <span>{tab.label}</span>
                         {tab.badge && (
                           <span
-                            className={`px-1.5 py-0.2 rounded-md text-[9px] font-black uppercase tracking-wider ${
-                              isActive ? 'bg-emerald-950 text-emerald-300' : 'bg-stone-200 text-stone-700'
+                            className={`px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${
+                              isActive ? 'bg-emerald-950 text-emerald-300' : 'bg-slate-100 text-slate-600 border border-slate-200'
                             }`}
                           >
                             {tab.badge}
@@ -340,22 +340,26 @@ export const ManageLandingPage: React.FC<ManageLandingPageProps> = ({
 
               {/* Split View Quick Action Bar (Always visible on top of active form) */}
               {viewMode === 'split' && (
-                <div className="sticky top-2 z-20 bg-white/95 backdrop-blur-md p-3 rounded-2xl border border-stone-200 shadow-sm flex flex-wrap items-center justify-between gap-2">
+                <div className="sticky top-2 z-20 bg-white/95 backdrop-blur-md p-3 px-4 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-xs font-black text-stone-900 flex items-center gap-1.5 truncate">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center shrink-0 border border-emerald-200/60">
                       {React.createElement(CMS_NAV_TABS.find(t => t.id === activeTab)?.icon || Layers, {
-                        className: 'w-4 h-4 text-emerald-700 shrink-0',
+                        className: 'w-4 h-4 text-emerald-700',
                       })}
-                      <span className="truncate">{CMS_NAV_TABS.find(t => t.id === activeTab)?.label}</span>
-                    </span>
-                    <span className="text-[10px] text-stone-400 font-mono hidden sm:inline shrink-0">
-                      ({CMS_NAV_TABS.findIndex(t => t.id === activeTab) + 1}/{CMS_NAV_TABS.length})
-                    </span>
+                    </div>
+                    <div>
+                      <span className="text-xs font-black text-slate-900 block truncate">
+                        {CMS_NAV_TABS.find(t => t.id === activeTab)?.label}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        Section {CMS_NAV_TABS.findIndex(t => t.id === activeTab) + 1} of {CMS_NAV_TABS.length}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
                     {/* Previous / Next tab buttons */}
-                    <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200">
+                    <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
                       <button
                         type="button"
                         disabled={CMS_NAV_TABS.findIndex(t => t.id === activeTab) === 0}
@@ -363,8 +367,8 @@ export const ManageLandingPage: React.FC<ManageLandingPageProps> = ({
                           const currIdx = CMS_NAV_TABS.findIndex(t => t.id === activeTab);
                           if (currIdx > 0) setActiveTab(CMS_NAV_TABS[currIdx - 1].id);
                         }}
-                        title="Previous Tab"
-                        className="p-1 rounded-lg hover:bg-white text-stone-700 disabled:opacity-30 cursor-pointer transition"
+                        title="Previous Section"
+                        className="p-1 rounded-lg hover:bg-white text-slate-700 disabled:opacity-30 cursor-pointer transition shadow-2xs"
                       >
                         <ChevronLeft className="w-3.5 h-3.5" />
                       </button>
@@ -375,8 +379,8 @@ export const ManageLandingPage: React.FC<ManageLandingPageProps> = ({
                           const currIdx = CMS_NAV_TABS.findIndex(t => t.id === activeTab);
                           if (currIdx < CMS_NAV_TABS.length - 1) setActiveTab(CMS_NAV_TABS[currIdx + 1].id);
                         }}
-                        title="Next Tab"
-                        className="p-1 rounded-lg hover:bg-white text-stone-700 disabled:opacity-30 cursor-pointer transition"
+                        title="Next Section"
+                        className="p-1 rounded-lg hover:bg-white text-slate-700 disabled:opacity-30 cursor-pointer transition shadow-2xs"
                       >
                         <ChevronRight className="w-3.5 h-3.5" />
                       </button>
@@ -386,9 +390,9 @@ export const ManageLandingPage: React.FC<ManageLandingPageProps> = ({
                       type="button"
                       onClick={handleSaveDraft}
                       title="Save edits to draft"
-                      className="px-3 py-1.5 rounded-xl border border-stone-300 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                      className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs active:scale-[0.98]"
                     >
-                      <Save className="w-3.5 h-3.5 text-stone-700" />
+                      <Save className="w-3.5 h-3.5 text-slate-600" />
                       <span>Save</span>
                     </button>
 
@@ -396,7 +400,7 @@ export const ManageLandingPage: React.FC<ManageLandingPageProps> = ({
                       type="button"
                       onClick={handlePublish}
                       title="Publish immediately to public landing page"
-                      className="px-3.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-black flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                      className="px-3.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-black flex items-center gap-1.5 transition cursor-pointer shadow-2xs active:scale-[0.98]"
                     >
                       <Send className="w-3.5 h-3.5 text-emerald-200" />
                       <span>Publish</span>
@@ -512,23 +516,36 @@ export const ManageLandingPage: React.FC<ManageLandingPageProps> = ({
             {/* Right Live Preview (Split View) */}
             {viewMode === 'split' && (
               <div className="xl:col-span-6 2xl:col-span-6 min-w-0 sticky top-2 z-10 space-y-2">
-                <div className="bg-white p-3 rounded-2xl border border-stone-200 shadow-2xs flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-pulse shrink-0" />
-                    <span className="text-xs font-bold text-stone-900">
-                      Live Preview ({deviceMode.toUpperCase()})
-                    </span>
+                <div className="bg-white p-3 px-4 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {/* Simulated Browser Traffic Light Controls */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-400/80 inline-block" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400/80 inline-block" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/80 inline-block" />
+                    </div>
+
+                    {/* Simulated URL bar */}
+                    <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[11px] text-slate-600 font-mono">
+                      <span className="text-emerald-700 font-bold">🔒</span>
+                      <span className="truncate">hinunangan-swine-registry.gov.ph</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                      <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse shrink-0" />
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Live Preview</span>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0">
                     {/* Device Selector */}
-                    <div className="bg-stone-100 p-1 rounded-xl flex items-center border border-stone-200">
+                    <div className="bg-slate-100/90 p-1 rounded-xl flex items-center border border-slate-200 shadow-inner">
                       <button
                         type="button"
                         onClick={() => setDeviceMode('desktop')}
-                        title="Desktop View"
-                        className={`p-1 rounded-lg text-xs cursor-pointer transition ${
-                          deviceMode === 'desktop' ? 'bg-white text-emerald-900 shadow-xs' : 'text-stone-600'
+                        title="Desktop View (100%)"
+                        className={`p-1.5 rounded-lg text-xs cursor-pointer transition ${
+                          deviceMode === 'desktop' ? 'bg-white text-emerald-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
                         }`}
                       >
                         <Monitor className="w-3.5 h-3.5" />
@@ -536,9 +553,9 @@ export const ManageLandingPage: React.FC<ManageLandingPageProps> = ({
                       <button
                         type="button"
                         onClick={() => setDeviceMode('tablet')}
-                        title="Tablet View"
-                        className={`p-1 rounded-lg text-xs cursor-pointer transition ${
-                          deviceMode === 'tablet' ? 'bg-white text-emerald-900 shadow-xs' : 'text-stone-600'
+                        title="Tablet View (768px)"
+                        className={`p-1.5 rounded-lg text-xs cursor-pointer transition ${
+                          deviceMode === 'tablet' ? 'bg-white text-emerald-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
                         }`}
                       >
                         <Tablet className="w-3.5 h-3.5" />
@@ -546,9 +563,9 @@ export const ManageLandingPage: React.FC<ManageLandingPageProps> = ({
                       <button
                         type="button"
                         onClick={() => setDeviceMode('mobile')}
-                        title="Mobile View"
-                        className={`p-1 rounded-lg text-xs cursor-pointer transition ${
-                          deviceMode === 'mobile' ? 'bg-white text-emerald-900 shadow-xs' : 'text-stone-600'
+                        title="Mobile View (375px)"
+                        className={`p-1.5 rounded-lg text-xs cursor-pointer transition ${
+                          deviceMode === 'mobile' ? 'bg-white text-emerald-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
                         }`}
                       >
                         <Smartphone className="w-3.5 h-3.5" />
@@ -560,15 +577,15 @@ export const ManageLandingPage: React.FC<ManageLandingPageProps> = ({
                       type="button"
                       onClick={() => setViewMode('preview')}
                       title="Fullscreen Preview"
-                      className="px-2.5 py-1 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold flex items-center gap-1 cursor-pointer transition border border-stone-200"
+                      className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition border border-slate-200 shadow-2xs active:scale-[0.98]"
                     >
-                      <Eye className="w-3.5 h-3.5 text-stone-600" />
-                      <span className="text-[11px] hidden sm:inline">Expand</span>
+                      <Eye className="w-3.5 h-3.5 text-slate-600" />
+                      <span className="text-[11px] hidden sm:inline">Fullscreen</span>
                     </button>
                   </div>
                 </div>
 
-                <div className="max-h-[calc(100vh-120px)] overflow-y-auto pr-1 pb-10 rounded-2xl border border-stone-200 bg-stone-100 shadow-inner">
+                <div className="max-h-[calc(100vh-140px)] overflow-y-auto pr-1 pb-10 rounded-2xl border border-slate-200/90 bg-slate-100/60 shadow-inner">
                   <LiveLandingPreview config={config} deviceMode={deviceMode} />
                 </div>
               </div>

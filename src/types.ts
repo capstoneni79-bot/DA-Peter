@@ -18,6 +18,8 @@ export interface UserAccount {
 }
 
 export type RiskLevel = 'green' | 'yellow' | 'red'; // ASF zoning: Green (Free), Yellow (Buffer), Red (Infected/Quarantine)
+export type ASFZone = 'RED' | 'PINK' | 'YELLOW' | 'GREEN';
+export type FarmScale = 'BACKYARD' | 'COMMERCIAL_MEDIUM' | 'COMMERCIAL_LARGE';
 
 export interface Barangay {
   id: string;
@@ -58,6 +60,7 @@ export interface BiosecurityChecklist {
 
 export interface SwineRecord {
   id: string;
+  pigIdTag?: string; // Immutable Tag ID format: HIN-YYYY-XXXX
   earTagNo: string;
   farmerName: string;
   farmerContact: string;
@@ -66,10 +69,14 @@ export interface SwineRecord {
   barangay_id?: string;
   rsbsaId?: string; // Registry System for Basic Sectors in Agriculture
   farmType: 'backyard' | 'commercial';
+  farmScale?: FarmScale;
+  asfZone?: ASFZone;
   swineType: SwineType;
   breed: string;
   ageWeeks: number;
   weightKg: number;
+  actualWeightKg?: number | null;
+  estimatedWeightKg?: string;
   gender: 'male' | 'female' | 'castrated';
   photoUrl?: string;
   latitude: number;
@@ -88,6 +95,7 @@ export interface SwineRecord {
   heartGirthCm?: number;
   bodyLengthCm?: number;
   calculationMethod?: 'auto_matrix' | 'tape_formula' | 'manual';
+  biosecurityWarningAcknowledged?: boolean;
 
   status: SwineStatus;
   readyToSell: boolean;

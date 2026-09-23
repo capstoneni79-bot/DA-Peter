@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Upload,
   Camera,
@@ -37,6 +37,8 @@ import {
   RegistryFormSchema,
   RegistryFormField,
   RegistryFormSection,
+  FarmScale,
+  ASFZone,
 } from '../../types';
 import { storageService } from '../../services/storageService';
 import {
@@ -63,6 +65,18 @@ import {
 } from '../../utils/boundaryValidation';
 import { getFieldKey, normalizePhilippinePhoneNumber } from '../../utils/registryFieldUtils';
 import { generateFieldValue } from '../../utils/autoGenFieldUtils';
+import {
+  generateNextPigIdTag,
+  calculateSwineAge,
+  getEstimatedWeightRange,
+  classifyFarmScale,
+  getFarmScaleLabel,
+  getBarangayASFZone,
+  shouldShowASFWarning,
+  validateSwineRecordForSave,
+  isValidPigIdTag,
+  FARM_SCALE_RULES,
+} from '../../utils/swineRegistryLogic';
 
 interface SwineFormProps {
   barangays: Barangay[];
@@ -122,11 +136,21 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     return formSchema.sections.find(s => s.id === secId);
   };
 
-  // Ear Tag ID / Code Auto-Generated
-  const [earTagNo, setEarTagNo] = useState(
-    initialData?.earTagNo ||
-      `HNG-${defaultBarangay.substring(0, 3).toUpperCase()}-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`
-  );
+  // Immutable Pig ID Tag Generator: HIN-YYYY-XXXX
+  // Retains existing ID tag on edit; generates sequential HIN-YYYY-XXXX for new record
+  const [pigIdTag] = useState<string>(() => {
+    if (initialData?.pigIdTag) return initialData.pigIdTag;
+    if (initialData?.earTagNo && /^HIN-\d{4}-\d{4,}$/i.test(initialData.earTagNo)) {
+      return initialData.earTagNo;
+    }
+    if (initialData?.earTagNo) {
+      return initialData.earTagNo;
+    }
+    const existing = storageService.getSwineRecords();
+    return generateNextPigIdTag(existing);
+  });
+  const [earTagNo] = useState<string>(pigIdTag);
+
   const [farmerName, setFarmerName] = useState(initialData?.farmerName || '');
   
   // Strict 11-digit Contact Number state
@@ -220,13 +244,33 @@ export const SwineForm: React.FC<SwineFormProps> = ({
   );
 
   // Automated swine Age (in Days), Automated Category & Weight
-  const initialDays = initialData?.ageDays || (initialData?.ageWeeks ? initialData.ageWeeks * 7 : 154);
-  const [ageDays, setAgeDays] = useState<number>(initialDays);
-  const [ageWeeks, setAgeWeeks] = useState<number>(Math.round(initialDays / 7));
-  const [birthDate, setBirthDate] = useState<string>(
-    initialData?.birthDate || calculateBirthDateFromDays(initialDays)
+  const defaultBirthDate = initialData?.birthDate || calculateBirthDateFromDays(initialData?.ageDays || 60);
+  const [birthDate, setBirthDate] = useState<string>(defaultBirthDate);
+  const [birthDateError, setBirthDateError] = useState<string | null>(null);
+
+  // Dynamic age calculation from Birth Date against today (reactive)
+  const ageCalculation = useMemo(() => {
+    return calculateSwineAge(birthDate);
+  }, [birthDate]);
+
+  const ageDays = ageCalculation.isValid ? ageCalculation.days : (initialData?.ageDays || 0);
+  const ageMonths = ageCalculation.isValid ? ageCalculation.months : (initialData?.ageMonths || 0);
+  const ageWeeks = Math.round(ageDays / 7);
+
+  // Automatic Estimated Weight Range based on Age in Days:
+  // 0-30 days: 2–8 kg | 31-60 days: 8–20 kg | 61-120 days: 20–60 kg | 121+ days: 60–100+ kg
+  const estimatedWeightRange = useMemo(() => {
+    return getEstimatedWeightRange(ageDays);
+  }, [ageDays]);
+
+  // Actual Weight Kg (preserved separately from estimated weight range)
+  const [actualWeightKg, setActualWeightKg] = useState<number | null>(
+    initialData?.actualWeightKg !== undefined ? initialData.actualWeightKg : (initialData?.weightKg || null)
   );
-  const [weightKg, setWeightKg] = useState<number>(initialData?.weightKg || 88);
+  const [weightKg, setWeightKg] = useState<number>(
+    initialData?.weightKg || (actualWeightKg ? Number(actualWeightKg) : 60)
+  );
+
   const [swineType, setSwineType] = useState<SwineType>(initialData?.swineType || 'finisher');
   const [breed, setBreed] = useState(initialData?.breed || 'Landrace x Large White');
   const [gender, setGender] = useState<'male' | 'female' | 'castrated'>(initialData?.gender || 'castrated');
@@ -236,7 +280,7 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     initialData?.targetSellDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
   );
   const [estimatedPricePhp, setEstimatedPricePhp] = useState<number>(
-    initialData?.estimatedPricePhp || Math.round((initialData?.weightKg || 88) * 180)
+    initialData?.estimatedPricePhp || Math.round((initialData?.weightKg || 60) * 180)
   );
   const [notes, setNotes] = useState(initialData?.notes || '');
   const [photoUrl, setPhotoUrl] = useState(initialData?.photoUrl || SAMPLE_SWINE_PHOTOS[0].url);
@@ -247,6 +291,32 @@ export const SwineForm: React.FC<SwineFormProps> = ({
   const [heartGirthCm, setHeartGirthCm] = useState<number>(initialData?.heartGirthCm || 105);
   const [bodyLengthCm, setBodyLengthCm] = useState<number>(initialData?.bodyLengthCm || 95);
   const [autoSyncMatrix, setAutoSyncMatrix] = useState(true);
+
+  // Farm Scale Auto-Classification:
+  // BACKYARD: 1-20 heads | COMMERCIAL_MEDIUM: 21-100 heads | COMMERCIAL_LARGE: 101+ heads
+  const currentHeadCount = useMemo(() => {
+    const parsed = Number(penCapacity);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+    return farmType === 'commercial' ? 50 : 5;
+  }, [penCapacity, farmType]);
+
+  const farmScale: FarmScale = useMemo(() => {
+    return classifyFarmScale(currentHeadCount);
+  }, [currentHeadCount]);
+
+  // ASF Zone for selected Barangay: RED, PINK, YELLOW, GREEN
+  const currentASFZone: ASFZone = useMemo(() => {
+    return getBarangayASFZone(barangay, barangays);
+  }, [barangay, barangays]);
+
+  // Immediate Breeding Boar Warning logic in RED / PINK ASF Zone
+  const showBoarASFWarning = useMemo(() => {
+    return shouldShowASFWarning(swineType, currentASFZone);
+  }, [swineType, currentASFZone]);
+
+  const [biosecurityWarningAcknowledged, setBiosecurityWarningAcknowledged] = useState<boolean>(
+    initialData?.biosecurityWarningAcknowledged ?? false
+  );
 
   // Biosecurity Checklists
   const [biosecurity, setBiosecurity] = useState<BiosecurityChecklist>(
@@ -301,21 +371,9 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     barangay
   );
 
-  // Calculate current age metrics in days
-  const ageDetails = calculateAgeFromBirthDate(birthDate);
-
-  // Ear tag generator: HNG-[BRGY]-[YEAR]-[RAND]
-  const handleRegenerateEarTag = (selectedBg: string) => {
-    const bgCode = selectedBg.substring(0, 3).toUpperCase();
-    const tag = `HNG-${bgCode}-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    setEarTagNo(tag);
-  };
-
+  // Immutable Tag: do not regenerate on barangay change!
   const handleBarangayChange = (newBg: string) => {
     setBarangay(newBg);
-    if (!initialData) {
-      handleRegenerateEarTag(newBg);
-    }
     const coords = getBarangayCoordinates(newBg);
     setLatitude(coords.latitude);
     setLongitude(coords.longitude);
@@ -348,25 +406,26 @@ export const SwineForm: React.FC<SwineFormProps> = ({
   // Automated swine Age (in Days), Automated Category & Weight triggers
   const handleBirthDateChange = (newDate: string) => {
     setBirthDate(newDate);
-    const details = calculateAgeFromBirthDate(newDate);
-    setAgeDays(details.days);
-    setAgeWeeks(details.weeks);
-
-    if (autoSyncMatrix) {
-      const benchmarkWeight = estimateWeightFromAgeDays(details.days);
-      setWeightKg(benchmarkWeight);
-      setEstimatedPricePhp(calculateEstimatedMarketPrice(benchmarkWeight));
-      const category = autoDetermineSwineCategory(details.days, benchmarkWeight, gender);
-      setSwineType(category);
+    const ageRes = calculateSwineAge(newDate);
+    if (!ageRes.isValid) {
+      setBirthDateError(ageRes.errorMessage || 'Birth date cannot be in the future.');
+    } else {
+      setBirthDateError(null);
+      if (autoSyncMatrix) {
+        const benchmarkWeight = estimateWeightFromAgeDays(ageRes.days);
+        setWeightKg(benchmarkWeight);
+        setEstimatedPricePhp(calculateEstimatedMarketPrice(benchmarkWeight));
+        const category = autoDetermineSwineCategory(ageRes.days, benchmarkWeight, gender);
+        setSwineType(category);
+      }
     }
   };
 
   const handleAgeDaysChange = (newDays: number) => {
-    const validDays = Math.max(1, newDays);
-    setAgeDays(validDays);
-    setAgeWeeks(Math.round(validDays / 7));
+    const validDays = Math.max(0, newDays);
     const calculatedBirth = calculateBirthDateFromDays(validDays);
     setBirthDate(calculatedBirth);
+    setBirthDateError(null);
 
     if (autoSyncMatrix) {
       const benchmarkWeight = estimateWeightFromAgeDays(validDays);
@@ -381,9 +440,8 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     const days = daysOrWeeks > 50 ? daysOrWeeks : Math.round(daysOrWeeks * 7);
     setSwineType(cat);
     setWeightKg(wt);
-    setAgeDays(days);
-    setAgeWeeks(Math.round(days / 7));
     setBirthDate(calculateBirthDateFromDays(days));
+    setBirthDateError(null);
     setEstimatedPricePhp(calculateEstimatedMarketPrice(wt));
   };
 
@@ -436,20 +494,25 @@ export const SwineForm: React.FC<SwineFormProps> = ({
   const renderFormField = (field: RegistryFormField, section: RegistryFormSection) => {
     if (field.visible === false) return null;
 
-    // 1. Ear Tag
+    // 1. Ear Tag / Pig ID Tag (Immutable format: HIN-YYYY-XXXX)
     if (field.id === 'fld_ear_tag') {
       return (
         <div key={field.id} className="sm:col-span-2">
-          <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 flex flex-wrap items-center justify-between gap-3">
+          <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex flex-wrap items-center justify-between gap-3">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <label className="font-black text-emerald-950 text-xs">{field.label}</label>
+                <label className="font-black text-emerald-950 text-xs">
+                  {field.label} / Pig ID Tag
+                </label>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-800 text-white font-black text-[10px] tracking-wide flex items-center gap-1 shadow-2xs">
-                  <Lock className="w-2.5 h-2.5 text-emerald-300" /> Locked & Auto-Generated
+                  <Lock className="w-2.5 h-2.5 text-emerald-300" /> Locked & Immutable
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 font-mono font-bold text-[10px] border border-emerald-200">
+                  Format: HIN-YYYY-XXXX
                 </span>
               </div>
-              <p className="text-[11px] text-emerald-900">
-                Official Hinunangan barcode & ear tag structure: <code>[HNG]-[BRGY]-[YEAR]-[SEQ]</code>. Locked against manual tampering.
+              <p className="text-[11px] text-emerald-900 font-medium">
+                Official Municipal Swine Registry ID Tag: <code>HIN-YYYY-XXXX</code> (e.g. <code>HIN-2026-0001</code>). Read-only and strictly immutable once assigned.
               </p>
             </div>
             <div className="relative">
@@ -457,9 +520,9 @@ export const SwineForm: React.FC<SwineFormProps> = ({
                 type="text"
                 readOnly
                 required={field.required}
-                value={earTagNo}
+                value={pigIdTag}
                 className="px-3.5 py-2 pl-8 rounded-xl border border-emerald-300 font-mono font-black text-sm text-emerald-950 bg-emerald-100/70 cursor-not-allowed select-none shadow-inner"
-                title="Ear Tag ID is locked and auto-generated by the municipal registry"
+                title="Pig ID Tag is immutable, read-only, and permanently assigned by the municipal registry"
               />
               <Lock className="w-3.5 h-3.5 text-emerald-700 absolute left-2.5 top-1/2 -translate-y-1/2" />
             </div>
@@ -498,9 +561,24 @@ export const SwineForm: React.FC<SwineFormProps> = ({
     if (field.id === 'fld_barangay' || field.type === 'barangay_select') {
       return (
         <div key={field.id}>
-          <label className="block font-bold text-stone-700 mb-1">
-            {field.label} {field.required && <span className="text-red-500">*</span>}
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block font-bold text-stone-700">
+              {field.label} {field.required && <span className="text-red-500">*</span>}
+            </label>
+            <span
+              className={`px-2 py-0.5 rounded-full font-black text-[10px] uppercase border ${
+                currentASFZone === 'RED'
+                  ? 'bg-red-100 text-red-800 border-red-300'
+                  : currentASFZone === 'PINK'
+                  ? 'bg-rose-100 text-rose-800 border-rose-300'
+                  : currentASFZone === 'YELLOW'
+                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                  : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+              }`}
+            >
+              {currentASFZone} Zone {currentASFZone === 'RED' ? '(Infected)' : currentASFZone === 'PINK' ? '(Buffer)' : currentASFZone === 'YELLOW' ? '(Surveillance)' : '(Free)'}
+            </span>
+          </div>
           <select
             value={barangay}
             disabled={currentUser?.role === 'focal'}
@@ -508,11 +586,14 @@ export const SwineForm: React.FC<SwineFormProps> = ({
             required={field.required}
             className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-hidden disabled:bg-stone-100 font-bold text-stone-800"
           >
-            {barangays.map(b => (
-              <option key={b.id} value={b.name}>
-                Brgy. {b.name} ({b.riskLevel.toUpperCase()} Zone)
-              </option>
-            ))}
+            {barangays.map(b => {
+              const bZone = getBarangayASFZone(b.name, barangays);
+              return (
+                <option key={b.id} value={b.name}>
+                  Brgy. {b.name} ({bZone} Zone)
+                </option>
+              );
+            })}
           </select>
           {currentUser?.role === 'focal' ? (
             <p className="text-[10px] text-blue-600 mt-1">Designated to your focal jurisdiction.</p>
@@ -563,17 +644,30 @@ export const SwineForm: React.FC<SwineFormProps> = ({
       );
     }
 
-    // 6. Farm Classification
+    // 6. Farm Classification (with reactive Farm Scale Auto-Classification)
     if (field.id === 'fld_farm_classification') {
       const opts =
         field.options && field.options.length > 0
           ? field.options
-          : ['Backyard (1-10 heads)', 'Semi-Commercial (11-50 heads)', 'Commercial Breeder (50+ heads)'];
+          : ['Backyard (1-20 heads)', 'Commercial Medium (21-100 heads)', 'Commercial Large (101+ heads)'];
       return (
         <div key={field.id}>
-          <label className="block font-bold text-stone-700 mb-1">
-            {field.label} {field.required && <span className="text-red-500">*</span>}
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block font-bold text-stone-700">
+              {field.label} {field.required && <span className="text-red-500">*</span>}
+            </label>
+            <span
+              className={`px-2 py-0.5 rounded-full font-black text-[10px] border ${
+                farmScale === 'BACKYARD'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                  : farmScale === 'COMMERCIAL_MEDIUM'
+                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                  : 'bg-purple-50 text-purple-800 border-purple-300'
+              }`}
+            >
+              {getFarmScaleLabel(farmScale)}
+            </span>
+          </div>
           <select
             value={farmClassification}
             onChange={e => {
@@ -582,7 +676,7 @@ export const SwineForm: React.FC<SwineFormProps> = ({
               handleCustomFieldChange('fld_farm_classification', e.target.value);
             }}
             required={field.required}
-            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
+            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-hidden font-medium"
           >
             {opts.map((opt, i) => (
               <option key={i} value={opt}>
@@ -590,7 +684,9 @@ export const SwineForm: React.FC<SwineFormProps> = ({
               </option>
             ))}
           </select>
-          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+          <p className="text-[10px] text-stone-500 mt-1">
+            Scale: <strong>{getFarmScaleLabel(farmScale)}</strong> (Municipal Ordinance No. 2025-59)
+          </p>
         </div>
       );
     }
@@ -615,13 +711,26 @@ export const SwineForm: React.FC<SwineFormProps> = ({
       );
     }
 
-    // 8. Capacity
+    // 8. Capacity / Head Count (updates Farm Scale reactively)
     if (field.id === 'fld_capacity') {
       return (
         <div key={field.id}>
-          <label className="block font-bold text-stone-700 mb-1">
-            {field.label} {field.required && <span className="text-red-500">*</span>}
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block font-bold text-stone-700">
+              {field.label} {field.required && <span className="text-red-500">*</span>}
+            </label>
+            <span
+              className={`px-2 py-0.5 rounded-full font-black text-[10px] border ${
+                farmScale === 'BACKYARD'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                  : farmScale === 'COMMERCIAL_MEDIUM'
+                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                  : 'bg-purple-50 text-purple-800 border-purple-300'
+              }`}
+            >
+              {farmScale}
+            </span>
+          </div>
           <input
             type="number"
             min="1"
@@ -632,7 +741,9 @@ export const SwineForm: React.FC<SwineFormProps> = ({
             placeholder={field.placeholder || 'e.g. 15'}
             className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-bold focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
           />
-          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+          <p className="text-[10px] text-stone-500 mt-1">
+            Auto-Classified: <strong>{getFarmScaleLabel(farmScale)}</strong>
+          </p>
         </div>
       );
     }
@@ -742,34 +853,50 @@ export const SwineForm: React.FC<SwineFormProps> = ({
             <label className="font-bold text-stone-700">
               {field.label} {field.required && <span className="text-red-500">*</span>}
             </label>
-            <span className="text-[10px] text-emerald-700 font-black">Matrix Synced</span>
+            {showBoarASFWarning ? (
+              <span className="text-[10px] text-red-700 bg-red-100 border border-red-300 px-2 py-0.5 rounded-full font-black flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3 text-red-600" /> High Biosecurity Concern
+              </span>
+            ) : (
+              <span className="text-[10px] text-emerald-700 font-black">Matrix Synced</span>
+            )}
           </div>
           <select
             value={swineType}
             onChange={e => setSwineType(e.target.value as SwineType)}
             required={field.required}
-            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 font-bold text-stone-900 capitalize"
+            className={`w-full px-3.5 py-2.5 rounded-xl border bg-white focus:ring-2 font-bold text-stone-900 capitalize ${
+              showBoarASFWarning ? 'border-red-400 focus:ring-red-500 bg-red-50/20' : 'border-stone-300 focus:ring-emerald-600'
+            }`}
           >
             <option value="piglet">Piglet / Weanling (Biik)</option>
             <option value="grower">Grower (Lumalaki)</option>
             <option value="finisher">Finisher (Market Ready)</option>
             <option value="sow">Breeder Sow (Inahin)</option>
-            <option value="boar">Breeder Boar (Barako)</option>
+            <option value="boar">Breeder Boar (Barako - Barako Breeder)</option>
           </select>
-          {field.helpText && <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>}
+          {showBoarASFWarning ? (
+            <p className="text-[10px] text-red-600 font-bold mt-1">
+              ⚠️ Strict movement prohibition & mandatory testing apply for boars in {currentASFZone} Zone.
+            </p>
+          ) : field.helpText ? (
+            <p className="text-[10px] text-stone-500 mt-1">{field.helpText}</p>
+          ) : null}
         </div>
       );
     }
 
-    // 14. Weight (kg)
+    // 14. Weight (kg) with Automatic Estimated Weight Range & Preserved Actual Weight
     if (field.id === 'fld_weight_kg') {
       return (
         <div key={field.id}>
           <div className="flex items-center justify-between mb-1">
             <label className="font-bold text-stone-700">
-              {field.label} {field.required && <span className="text-red-500">*</span>}
+              Live Weight (kg) {field.required && <span className="text-red-500">*</span>}
             </label>
-            <span className="text-[10px] text-stone-500 font-medium">DA Benchmark</span>
+            <span className="text-[10px] bg-emerald-50 text-emerald-800 font-black px-2 py-0.5 rounded-md border border-emerald-200">
+              Estimated: {estimatedWeightRange}
+            </span>
           </div>
           <input
             type="number"
@@ -781,13 +908,20 @@ export const SwineForm: React.FC<SwineFormProps> = ({
             onChange={e => {
               const wt = Number(e.target.value);
               setWeightKg(wt);
+              setActualWeightKg(wt);
               setEstimatedPricePhp(calculateEstimatedMarketPrice(wt));
             }}
+            placeholder={estimatedWeightRange}
             className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-mono font-black text-sm text-stone-900 focus:ring-2 focus:ring-emerald-600"
           />
-          <span className="text-[10px] text-stone-500 mt-1 block">
-            {field.helpText || 'Target finisher: 85 - 100 kg'}
-          </span>
+          <div className="flex items-center justify-between text-[10px] text-stone-500 mt-1">
+            <span>Age Benchmark: <strong className="text-emerald-800">{estimatedWeightRange}</strong> ({ageDays}d)</span>
+            {actualWeightKg !== null ? (
+              <span className="text-blue-700 font-bold">Actual Weight Recorded</span>
+            ) : (
+              <span className="text-stone-400">Derived from Matrix</span>
+            )}
+          </div>
         </div>
       );
     }
@@ -821,23 +955,42 @@ export const SwineForm: React.FC<SwineFormProps> = ({
       );
     }
 
-    // 16. Birth Date
+    // 16. Birth Date with Reactive Age Calculation and Validation
     if (field.id === 'fld_birth_date') {
+      const todayStr = new Date().toISOString().split('T')[0];
       return (
         <div key={field.id}>
-          <label className="block font-bold text-stone-700 mb-1">
-            {field.label} {field.required && <span className="text-red-500">*</span>}
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block font-bold text-stone-700">
+              {field.label} {field.required && <span className="text-red-500">*</span>}
+            </label>
+            <span className={`text-[10px] font-bold ${birthDateError ? 'text-red-600' : 'text-emerald-800'}`}>
+              Age: {ageCalculation.isValid ? ageCalculation.displayText : 'Invalid Date'}
+            </span>
+          </div>
           <input
             type="date"
+            max={todayStr}
             required={field.required}
             value={birthDate}
             onChange={e => handleBirthDateChange(e.target.value)}
-            className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white focus:ring-2 focus:ring-emerald-600 font-semibold text-stone-900"
+            className={`w-full px-3.5 py-2.5 rounded-xl border bg-white focus:ring-2 font-semibold text-stone-900 ${
+              birthDateError
+                ? 'border-red-500 focus:ring-red-500 bg-red-50/40 text-red-950'
+                : 'border-stone-300 focus:ring-emerald-600'
+            }`}
           />
-          <span className="text-[10px] text-stone-500 mt-1 block">
-            {field.helpText || `${ageDays} Days Old (${ageWeeks} Weeks)`}
-          </span>
+          {birthDateError ? (
+            <p className="text-[11px] font-bold text-red-600 mt-1 flex items-center gap-1">
+              <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+              {birthDateError}
+            </p>
+          ) : (
+            <div className="flex items-center justify-between text-[10px] text-stone-500 mt-1">
+              <span>Derived: {ageDays} days / {ageMonths} {ageMonths === 1 ? 'month' : 'months'} ({ageWeeks} wks)</span>
+              <span className="text-stone-400 font-medium">Read-only computed</span>
+            </div>
+          )}
         </div>
       );
     }
@@ -1961,6 +2114,25 @@ export const SwineForm: React.FC<SwineFormProps> = ({
       }
     }
 
+    // Birth Date Validation: Cannot be in the future
+    const ageResult = calculateSwineAge(birthDate);
+    if (!ageResult.isValid) {
+      setBirthDateError(ageResult.errorMessage || 'Invalid birth date.');
+      alert(ageResult.errorMessage || 'Birth date cannot be in the future.');
+      return;
+    }
+
+    // High Biosecurity Concern: Breeding Boars in RED or PINK zone require acknowledgment
+    if (showBoarASFWarning && !biosecurityWarningAcknowledged) {
+      alert(
+        `⚠️ HIGH BIOSECURITY CONCERN:\n\n` +
+          `This swine is classified as a Breeding Boar in a ${currentASFZone} ASF Zone (Brgy. ${barangay}).\n\n` +
+          `Under Hinunangan Municipal Executive Order & African Swine Fever Prevention Protocols, breeding boars in RED or PINK zones are subject to strict quarantine, movement prohibition, and mandatory testing.\n\n` +
+          `You must check the biosecurity acknowledgment box before this record can be saved.`
+      );
+      return;
+    }
+
     // Strict Geographic Exclusivity Check: Registration is strictly exclusive to Municipality of Hinunangan
     const exclusivityCheck = validateHinunanganRegistration(
       Number(latitude),
@@ -1977,24 +2149,53 @@ export const SwineForm: React.FC<SwineFormProps> = ({
       return;
     }
 
+    // Pre-save validation using centralized swineRegistryLogic
+    const existingRecords = storageService.getSwineRecords();
+    const validation = validateSwineRecordForSave(
+      {
+        pigIdTag,
+        earTagNo: pigIdTag,
+        farmerName,
+        birthDate,
+        swineType,
+        barangay,
+        farmScale,
+        asfZone: currentASFZone,
+        biosecurityWarningAcknowledged,
+      },
+      existingRecords,
+      initialData?.id
+    );
+
+    if (!validation.isValid) {
+      alert(validation.errorMessage || 'Validation error. Please verify the form inputs.');
+      return;
+    }
+
     const normalizedContact = normalizePhilippinePhoneNumber(farmerContact) || farmerContact.trim();
 
     const newRecord: SwineRecord = {
       id: initialData?.id || 'swine-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
-      earTagNo,
+      pigIdTag,
+      earTagNo: pigIdTag,
       farmerName,
       farmerContact: normalizedContact,
       farmerAddress: farmerAddress || `Brgy. ${barangay}, Hinunangan`,
       barangay,
       rsbsaId,
       farmType,
+      farmScale,
+      asfZone: currentASFZone,
+      biosecurityWarningAcknowledged: showBoarASFWarning ? biosecurityWarningAcknowledged : undefined,
       swineType,
       breed,
       birthDate,
       ageWeeks: Number(ageWeeks),
       ageDays: Number(ageDays),
-      ageMonths: Number((ageDays / 30.4375).toFixed(1)),
-      weightKg: Number(weightKg),
+      ageMonths: Number(ageMonths),
+      estimatedWeightKg: estimatedWeightRange,
+      actualWeightKg: actualWeightKg !== null ? Number(actualWeightKg) : undefined,
+      weightKg: Number(weightKg || (actualWeightKg ? actualWeightKg : 60)),
       gender,
       photoUrl,
       latitude: Number(latitude),
@@ -2026,6 +2227,8 @@ export const SwineForm: React.FC<SwineFormProps> = ({
         const merged: Record<string, any> = {
           ...customFieldValues,
           farmClassification,
+          farmScale,
+          asfZone: currentASFZone,
           asfClearanceStatus,
           fld_governing_ordinance: selectedOrdinanceCode,
           governingOrdinance: selectedOrdinanceCode,
@@ -2067,7 +2270,7 @@ export const SwineForm: React.FC<SwineFormProps> = ({
             <Layers className="w-4 h-4" /> Official DA Registry Form & Biosecurity Protocol
           </span>
           <h2 className="text-xl sm:text-2xl font-black mt-1">
-            {initialData ? `Edit Swine Record: ${initialData.earTagNo}` : 'Register Farmer & Swine Data'}
+            {initialData ? `Edit Swine Record: ${pigIdTag}` : 'Register Farmer & Swine Data'}
           </h2>
           <p className="text-xs text-emerald-200/90 mt-1 max-w-2xl leading-relaxed">
             Standardized registration including <strong>GIS Pen Coordinates & Setback Buffers</strong>, <strong>Automated Age/Category Matrix</strong>, and adherence to <strong>Southern Leyte Provincial Ordinance 2021-018</strong> & <strong>Hinunangan Municipal EO No. 12-2023</strong>.
@@ -2098,6 +2301,44 @@ export const SwineForm: React.FC<SwineFormProps> = ({
           )}
         </div>
       </div>
+
+      {/* Immediate Breeding Boar in High-Risk ASF Zone Warning Banner */}
+      {showBoarASFWarning && (
+        <div className="bg-red-50 border-2 border-red-500 rounded-3xl p-5 mb-6 shadow-md animate-fadeIn">
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 rounded-2xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+              <AlertTriangle className="w-6 h-6 text-white" />
+            </div>
+            <div className="space-y-2 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="bg-red-600 text-white text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full shadow-2xs">
+                  HIGH BIOSECURITY CONCERN
+                </span>
+                <span className="text-sm font-black text-red-950">
+                  Breeding Boar in {currentASFZone} Zone (Brgy. {barangay})
+                </span>
+              </div>
+              <p className="text-xs text-red-900 leading-relaxed font-medium">
+                Under Hinunangan Municipal Executive Order & African Swine Fever (ASF) Prevention Protocols,
+                <strong> Breeding Boars (Barako) located within RED or PINK ASF zones are subject to strict quarantine,
+                immediate movement prohibition, and mandatory testing.</strong> Natural mating transit between farms is
+                strictly prohibited to prevent viral contamination across barangay lines.
+              </p>
+              <label className="flex items-start gap-3 mt-3 pt-3 border-t border-red-200 cursor-pointer bg-white/70 p-3 rounded-xl border">
+                <input
+                  type="checkbox"
+                  checked={biosecurityWarningAcknowledged}
+                  onChange={e => setBiosecurityWarningAcknowledged(e.target.checked)}
+                  className="w-4 h-4 text-red-600 rounded border-red-400 focus:ring-red-500 mt-0.5"
+                />
+                <span className="text-xs font-bold text-red-950">
+                  I acknowledge the biosecurity risks, movement prohibitions, and mandatory testing protocols for this breeding boar in the {currentASFZone} zone.
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Schema-Driven Dynamic Sections matching Admin Customizer */}

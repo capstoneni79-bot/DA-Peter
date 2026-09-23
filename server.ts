@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { INITIAL_ISSUED_CERTIFICATES } from './src/data/initialData';
+import { INITIAL_ISSUED_CERTIFICATES, INITIAL_SWINE_RECORDS } from './src/data/initialData';
 import { ALL_ASF_REGULATIONS } from './src/data/asfRegulationsData';
 import { HINUNANGAN_BARANGAYS } from './src/data/barangays';
 
@@ -27,7 +27,7 @@ async function startServer() {
 
   // In-memory persistent database stores
   let savedRegistrySchema: any = null;
-  const inMemorySwineRecords: any[] = [];
+  const inMemorySwineRecords: any[] = JSON.parse(JSON.stringify(INITIAL_SWINE_RECORDS));
   const inMemoryCertificates: any[] = JSON.parse(JSON.stringify(INITIAL_ISSUED_CERTIFICATES));
   const inMemoryLegalDocs: any[] = JSON.parse(JSON.stringify(ALL_ASF_REGULATIONS));
   const inMemoryAuditLogs: any[] = [];
@@ -410,8 +410,10 @@ async function startServer() {
   });
 
   // Swine Registration Backend Validation & Record Persistence
+  const PIG_ID_TAG_REGEX = /^(HIN-\d{4}-\d{4,}|HNG-[A-Z0-9]+-\d{4}-\d+)$/i;
+
   app.post('/api/validate-swine', (req, res) => {
-    const { farmerContact } = req.body || {};
+    const { farmerContact, pigIdTag, earTagNo, birthDate, id } = req.body || {};
     if (!farmerContact || typeof farmerContact !== 'string' || !EXACT_11_DIGIT_REGEX.test(farmerContact)) {
       return res.status(400).json({
         isValid: false,
@@ -419,11 +421,189 @@ async function startServer() {
         error: 'Contact number must contain exactly 11 digits.',
       });
     }
+
+    const tag = (pigIdTag || earTagNo || '').trim();
+    if (tag && !PIG_ID_TAG_REGEX.test(tag)) {
+      return res.status(400).json({
+        isValid: false,
+        field: 'pigIdTag',
+        error: 'Invalid Pig ID Tag format. Expected format: HIN-YYYY-XXXX (e.g. HIN-2026-0001).',
+      });
+    }
+
+    if (tag) {
+      const isDuplicate = inMemorySwineRecords.some(
+        r => r.id !== id && (r.pigIdTag?.toUpperCase() === tag.toUpperCase() || r.earTagNo?.toUpperCase() === tag.toUpperCase())
+      );
+      if (isDuplicate) {
+        return res.status(400).json({
+          isValid: false,
+          field: 'pigIdTag',
+          error: `Pig ID Tag "${tag}" already exists. Must be unique.`,
+        });
+      }
+    }
+
+    if (birthDate) {
+      const bDate = new Date(birthDate);
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      if (bDate.getTime() > today.getTime()) {
+        return res.status(400).json({
+          isValid: false,
+          field: 'birthDate',
+          error: 'Birth date cannot be in the future.',
+        });
+      }
+    }
+
     res.json({ isValid: true });
   });
 
-  app.get('/api/swine', (_req, res) => {
-    res.json({ success: true, count: inMemorySwineRecords.length, data: inMemorySwineRecords });
+  // Strict Barangay-Based Swine Registry Query API
+  app.get('/api/swine', (req, res) => {
+    const user = getUserSecurityContext(req);
+    const requestedBarangay =
+      (req.query.filter_barangay as string) ||
+      (req.query.barangay as string) ||
+      (req.query.barangayId as string);
+
+    if (!user.isAdmin) {
+      // Non-admin (Focal Person) MUST ONLY view swine records from their own assigned barangay
+      if (
+        requestedBarangay &&
+        requestedBarangay !== 'all' &&
+        requestedBarangay !== user.barangayId &&
+        requestedBarangay.toLowerCase() !== user.assignedBarangay.toLowerCase()
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: `Access Denied: You are not authorized to view swine records outside your assigned barangay (${user.assignedBarangay || user.barangayId}).`,
+        });
+      }
+
+      if (requestedBarangay === 'all') {
+        return res.status(403).json({
+          success: false,
+          error: 'Access Denied: Non-admin users cannot query swine records for all barangays.',
+        });
+      }
+
+      const filtered = inMemorySwineRecords.filter((s: any) => {
+        const matchId = Boolean(s.barangay_id && user.barangayId && s.barangay_id === user.barangayId);
+        const matchName = Boolean(
+          s.barangay && user.assignedBarangay && s.barangay.toLowerCase() === user.assignedBarangay.toLowerCase()
+        );
+        return matchId || matchName;
+      });
+
+      return res.json({
+        success: true,
+        count: filtered.length,
+        data: filtered,
+        scope: user.assignedBarangay || user.barangayId,
+      });
+    }
+
+    // Admin access
+    let list = inMemorySwineRecords;
+    if (requestedBarangay && requestedBarangay !== 'all') {
+      list = list.filter(
+        (s: any) =>
+          s.barangay_id === requestedBarangay ||
+          (s.barangay && s.barangay.toLowerCase() === requestedBarangay.toLowerCase())
+      );
+    }
+    return res.json({ success: true, count: list.length, data: list, scope: 'all_permitted' });
+  });
+
+  // Single Swine Record Access API with Strict Security Check
+  app.get('/api/swine/:id', (req, res) => {
+    const user = getUserSecurityContext(req);
+    const swine = inMemorySwineRecords.find((s: any) => s.id === req.params.id);
+    if (!swine) {
+      return res.status(404).json({ success: false, error: 'Swine record not found.' });
+    }
+
+    if (!user.isAdmin) {
+      const matchId = Boolean(swine.barangay_id && user.barangayId && swine.barangay_id === user.barangayId);
+      const matchName = Boolean(
+        swine.barangay && user.assignedBarangay && swine.barangay.toLowerCase() === user.assignedBarangay.toLowerCase()
+      );
+      if (!matchId && !matchName) {
+        return res.status(403).json({
+          success: false,
+          error: `Access Denied: You are not authorized to view swine record ${swine.pigIdTag || swine.id}. It belongs to Barangay ${swine.barangay}. Your account is assigned strictly to Barangay ${user.assignedBarangay || user.barangayId}.`,
+        });
+      }
+    }
+
+    return res.json({ success: true, data: swine });
+  });
+
+  // GIS Authorized Summary API
+  app.get('/api/gis/summary', (req, res) => {
+    const user = getUserSecurityContext(req);
+    const requestedBarangay =
+      (req.query.barangay as string) ||
+      (req.query.barangayId as string);
+
+    if (!user.isAdmin) {
+      if (
+        requestedBarangay &&
+        requestedBarangay !== 'all' &&
+        requestedBarangay !== user.barangayId &&
+        requestedBarangay.toLowerCase() !== user.assignedBarangay.toLowerCase()
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: `Access Denied: You are not authorized to access GIS metrics for Barangay ${requestedBarangay}. Your account is assigned strictly to Barangay ${user.assignedBarangay || user.barangayId}.`,
+        });
+      }
+    }
+
+    const targetBarangays = user.isAdmin
+      ? (requestedBarangay && requestedBarangay !== 'all'
+          ? HINUNANGAN_BARANGAYS.filter(b => b.id === requestedBarangay || b.name.toLowerCase() === requestedBarangay.toLowerCase())
+          : HINUNANGAN_BARANGAYS)
+      : HINUNANGAN_BARANGAYS.filter(
+          b => b.id === user.barangayId || b.name.toLowerCase() === user.assignedBarangay.toLowerCase()
+        );
+
+    const summary = targetBarangays.map(bg => {
+      const bgPigs = inMemorySwineRecords.filter(
+        s => (s.barangay_id && s.barangay_id === bg.id) || (s.barangay && s.barangay.toLowerCase() === bg.name.toLowerCase())
+      );
+      const uniqueFarmers = new Set(bgPigs.map(p => p.farmerName || p.farmerContact).filter(Boolean)).size;
+      const boars = bgPigs.filter(p => p.swineType === 'boar').length;
+      const sows = bgPigs.filter(p => p.swineType === 'sow').length;
+      const piglets = bgPigs.filter(p => p.swineType === 'piglet').length;
+      const growers = bgPigs.filter(p => p.swineType === 'grower').length;
+      const fatteners = bgPigs.filter(p => p.swineType === 'finisher').length;
+      const readyToSell = bgPigs.filter(p => p.readyToSell || p.status === 'ready_to_sell').length;
+
+      return {
+        barangay: bg.name,
+        barangayId: bg.id,
+        registeredFarmers: uniqueFarmers,
+        totalSwine: bgPigs.length,
+        breedingBoars: boars,
+        breedingSows: sows,
+        piglets,
+        growers,
+        fatteners,
+        readyForSale: readyToSell,
+        riskLevel: bg.defaultRiskLevel,
+        latitude: bg.latitude,
+        longitude: bg.longitude,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: summary,
+      scope: user.isAdmin ? 'all_permitted' : (user.assignedBarangay || user.barangayId),
+    });
   });
 
   app.post('/api/swine', (req, res) => {
@@ -432,7 +612,7 @@ async function startServer() {
       return res.status(400).json({ success: false, error: 'Invalid record payload' });
     }
 
-    const { farmerContact } = record;
+    const { farmerContact, pigIdTag, earTagNo, birthDate } = record;
     // Strict Backend Validation: Contact number must be exactly 11 digits (0-9 only)
     if (!farmerContact || typeof farmerContact !== 'string' || !EXACT_11_DIGIT_REGEX.test(farmerContact)) {
       return res.status(400).json({
@@ -442,8 +622,44 @@ async function startServer() {
       });
     }
 
+    const tag = (pigIdTag || earTagNo || '').trim();
+    if (tag && !PIG_ID_TAG_REGEX.test(tag)) {
+      return res.status(400).json({
+        success: false,
+        field: 'pigIdTag',
+        error: 'Invalid Pig ID Tag format. Expected format: HIN-YYYY-XXXX (e.g. HIN-2026-0001).',
+      });
+    }
+
+    if (tag) {
+      const isDuplicate = inMemorySwineRecords.some(
+        r => r.pigIdTag?.toUpperCase() === tag.toUpperCase() || r.earTagNo?.toUpperCase() === tag.toUpperCase()
+      );
+      if (isDuplicate) {
+        return res.status(400).json({
+          success: false,
+          field: 'pigIdTag',
+          error: `Pig ID Tag "${tag}" is already assigned to another swine. Must be unique.`,
+        });
+      }
+    }
+
+    if (birthDate) {
+      const bDate = new Date(birthDate);
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      if (bDate.getTime() > today.getTime()) {
+        return res.status(400).json({
+          success: false,
+          field: 'birthDate',
+          error: 'Birth date cannot be in the future.',
+        });
+      }
+    }
+
     const newRec = {
       ...record,
+      pigIdTag: record.pigIdTag || record.earTagNo,
       serverRegisteredAt: new Date().toISOString(),
     };
     inMemorySwineRecords.unshift(newRec);
@@ -452,13 +668,40 @@ async function startServer() {
 
   app.put('/api/swine/:id', (req, res) => {
     const record = req.body;
-    const { farmerContact } = record || {};
+    const { farmerContact, pigIdTag, earTagNo, birthDate } = record || {};
     if (!farmerContact || typeof farmerContact !== 'string' || !EXACT_11_DIGIT_REGEX.test(farmerContact)) {
       return res.status(400).json({
         success: false,
         field: 'farmerContact',
         error: 'Contact number must contain exactly 11 digits.',
       });
+    }
+
+    const tag = (pigIdTag || earTagNo || '').trim();
+    if (tag) {
+      const isDuplicate = inMemorySwineRecords.some(
+        (r) => r.id !== req.params.id && (r.pigIdTag?.toUpperCase() === tag.toUpperCase() || r.earTagNo?.toUpperCase() === tag.toUpperCase())
+      );
+      if (isDuplicate) {
+        return res.status(400).json({
+          success: false,
+          field: 'pigIdTag',
+          error: `Pig ID Tag "${tag}" already exists. Must be unique.`,
+        });
+      }
+    }
+
+    if (birthDate) {
+      const bDate = new Date(birthDate);
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      if (bDate.getTime() > today.getTime()) {
+        return res.status(400).json({
+          success: false,
+          field: 'birthDate',
+          error: 'Birth date cannot be in the future.',
+        });
+      }
     }
 
     const idx = inMemorySwineRecords.findIndex((r) => r.id === req.params.id);

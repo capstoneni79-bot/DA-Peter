@@ -62,6 +62,35 @@ export default function App() {
   const [editingSwine, setEditingSwine] = useState<SwineRecord | null>(null);
   const [certificateSwine, setCertificateSwine] = useState<SwineRecord | null>(null);
   const [preselectedTakeoffSwine, setPreselectedTakeoffSwine] = useState<SwineRecord | null>(null);
+  const [gisSelectedBarangay, setGisSelectedBarangay] = useState<string | undefined>(undefined);
+  const [gisInitialCenter, setGisInitialCenter] = useState<[number, number] | undefined>(undefined);
+  const [gisTargetSwineId, setGisTargetSwineId] = useState<string | null>(null);
+  const [recordsViewingRecordId, setRecordsViewingRecordId] = useState<string | null>(null);
+
+  const handleViewSwineOnMap = (swine: SwineRecord) => {
+    setGisTargetSwineId(swine.id || swine.pigIdTag);
+    const matchedBg = barangays.find(
+      b => (swine.barangay_id && b.id === swine.barangay_id) ||
+           b.name.toLowerCase() === (swine.barangay || '').toLowerCase()
+    );
+    if (matchedBg) {
+      setGisSelectedBarangay(matchedBg.name);
+    } else {
+      setGisSelectedBarangay(swine.barangay);
+    }
+
+    if (swine.latitude && swine.longitude) {
+      setGisInitialCenter([swine.latitude, swine.longitude]);
+    } else if (matchedBg) {
+      setGisInitialCenter([matchedBg.latitude, matchedBg.longitude]);
+    }
+    setActiveTab('gis');
+  };
+
+  const handleViewSwineRecord = (swine: SwineRecord) => {
+    setRecordsViewingRecordId(swine.id || swine.pigIdTag);
+    setActiveTab('records');
+  };
 
   // Counters for Header badges
   const [readyTakeoffCount, setReadyTakeoffCount] = useState<number>(0);
@@ -191,9 +220,9 @@ export default function App() {
   };
 
   return (
-    <div className={`${currentRole === 'landing' ? 'min-h-screen' : 'h-screen max-h-screen overflow-hidden'} bg-stone-100/70 text-stone-900 flex flex-col font-sans antialiased selection:bg-emerald-200 relative`}>
-      {/* Connected Interface Background Layer for Admin/Portal */}
-      {interfaceBg?.imageUrl && interfaceBg.enabled !== false && currentRole !== 'landing' && (
+    <div className={`${currentRole === 'landing' ? 'min-h-screen' : 'h-screen max-h-screen overflow-hidden'} bg-slate-100 text-stone-900 flex flex-col font-sans antialiased selection:bg-emerald-200 relative`}>
+      {/* Connected Interface Background Layer - Exclusively for Public Landing View */}
+      {interfaceBg?.imageUrl && interfaceBg.enabled !== false && currentRole === 'landing' && (
         <div
           className={`fixed inset-0 pointer-events-none z-0 ${interfaceBg.fixed !== false ? 'attachment-fixed' : ''}`}
           style={{
@@ -262,7 +291,7 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden relative">
         {/* Desktop Locked-In Sidebar (Permanently docked, zero jump/flicker, 100% accessible) */}
         {currentRole !== 'landing' && (
-          <aside className="hidden lg:flex flex-col w-72 shrink-0 border-r border-slate-800/80 bg-[#070e20] z-20 h-full overflow-hidden">
+          <aside className="hidden lg:flex flex-col w-72 xl:w-80 shrink-0 border-r border-slate-800/80 bg-[#070e20] z-20 h-full overflow-hidden">
             <Sidebar
               currentUser={currentUser}
               currentRole={currentRole}
@@ -292,7 +321,7 @@ export default function App() {
               onClick={() => setIsSidebarOpen(false)}
               aria-label="Close navigation menu"
             />
-            <div className="relative w-72 max-w-[85vw] h-full bg-[#070e20] shadow-2xl z-10 flex flex-col overflow-hidden animate-in slide-in-from-left duration-200">
+            <div className="relative w-72 sm:w-80 max-w-[85vw] h-full bg-[#070e20] shadow-2xl z-10 flex flex-col overflow-hidden animate-in slide-in-from-left duration-200">
               <Sidebar
                 currentUser={currentUser}
                 currentRole={currentRole}
@@ -324,8 +353,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Main Dashboard Viewport - ALWAYS fully visible, bright, clickable & interactive */}
-        <main className="flex-1 w-full min-w-0 overflow-y-auto">
+        {/* Main Dashboard Viewport - ALWAYS fully visible, bright, solid administrative canvas */}
+        <main className="flex-1 w-full min-w-0 overflow-y-auto bg-slate-100 text-stone-900 relative z-10">
         {currentRole === 'landing' ? (
           <LandingPage
             swineList={swineList}
@@ -433,8 +462,13 @@ export default function App() {
                       : swineList
                   }
                   barangays={barangays}
-                  selectedBarangay={currentRole === 'focal' ? currentUser?.assignedBarangay : undefined}
+                  selectedBarangay={gisSelectedBarangay || (currentRole === 'focal' ? currentUser?.assignedBarangay : undefined)}
+                  initialCenter={gisInitialCenter}
+                  currentUser={currentUser}
+                  currentRole={currentRole}
+                  targetSwineId={gisTargetSwineId}
                   onSelectSwine={handleEditSwine}
+                  onViewSwineRecord={handleViewSwineRecord}
                 />
               </div>
             )}
@@ -474,6 +508,8 @@ export default function App() {
                 currentRole={currentRole}
                 onEditSwine={handleEditSwine}
                 onIssueCertificate={handleIssueCertificateForSwine}
+                onViewOnMap={handleViewSwineOnMap}
+                initialViewingRecordId={recordsViewingRecordId}
                 onAddSwine={() => {
                   setEditingSwine(null);
                   setActiveTab('add_swine');
