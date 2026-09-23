@@ -18,6 +18,9 @@ export const INITIAL_LANDING_CMS_CONFIG: LandingCmsConfig = {
   address: 'Municipal Agriculture Office, Hinunangan Town Hall Compound, Southern Leyte 6601',
 
   // Header & Navigation
+  headerTitle: 'Municipal Agriculture Office - Hinunangan',
+  headerSubtitle: 'Swine Farm Registry and Georeferencing',
+  headerLanguageEnabled: true,
   headerLogoUrl: '/icon.svg',
   headerLogoWidth: 44,
   headerHeight: 72,
@@ -39,8 +42,8 @@ export const INITIAL_LANDING_CMS_CONFIG: LandingCmsConfig = {
   heroTitle: 'DA HINUNANGAN SWINE REGISTRY',
   heroSubtitle: 'Empowering Hinunangan Hog Raisers with Real-time Traceability, Offline Accessibility, and Resilient African Swine Fever (ASF) Biosecurity Monitoring.',
   heroDescription: 'An integrated digital registry uniting the Department of Agriculture, Municipal Government of Hinunangan, Southern Leyte State University (SLSU) Extension Center, and 40 Barangay Agricultural Focal Persons to safeguard animal health and local livelihoods.',
-  primaryButtonText: 'Sign In / Login',
-  primaryButtonLink: '#login',
+  primaryButtonText: '',
+  primaryButtonLink: '',
   secondaryButtonText: 'Enter Admin Portal',
   secondaryButtonLink: '#admin-portal',
   heroBackgroundUrl: 'https://images.unsplash.com/photo-1516467508483-a7212febe31a?auto=format&fit=crop&w=1600&q=80',

@@ -4,6 +4,7 @@ export interface UserAccount {
   id: string;
   username: string;
   name: string;
+  fullName?: string;
   email: string;
   password?: string;
   role: UserRole;
@@ -11,6 +12,7 @@ export interface UserAccount {
   contactNo?: string;
   active?: boolean;
   assignedBarangay?: string; // required for focal person
+  barangay_id?: string; // canonical reference id e.g. "brgy-bugho"
   avatarUrl?: string;
   createdAt: string;
 }
@@ -61,6 +63,7 @@ export interface SwineRecord {
   farmerContact: string;
   farmerAddress: string;
   barangay: string;
+  barangay_id?: string;
   rsbsaId?: string; // Registry System for Basic Sectors in Agriculture
   farmType: 'backyard' | 'commercial';
   swineType: SwineType;
@@ -93,6 +96,7 @@ export interface SwineRecord {
   isArchived: boolean;
   biosecurity: BiosecurityChecklist;
   notes?: string;
+  applicableOrdinanceNumber?: string;
   farmName?: string;
   penCapacity?: number;
   email?: string;
@@ -104,18 +108,163 @@ export interface SwineRecord {
   isSynced?: boolean;
 }
 
+export type LegalDocumentType =
+  | 'municipal_ordinance'
+  | 'provincial_ordinance'
+  | 'resolution'
+  | 'administrative_order'
+  | 'memorandum'
+  | 'legal_reference'
+  | 'municipal_eo'
+  | 'proclamation'
+  | 'republic_act'
+  | 'department_order'
+  | 'other';
+
+export type LegalDocumentCategory = 'ordinance' | 'resolution' | 'national_reference' | 'executive_order' | 'memorandum' | 'administrative_order' | 'other';
+export type LegalDocumentStatus = 'draft' | 'active' | 'superseded' | 'amended' | 'archived' | 'repealed';
+
+export interface LegalSubsection {
+  id: string;
+  identifier: string; // e.g. "a.", "b.", "1.", "2.", "i.", "ii."
+  title?: string;
+  content: string;
+  subsections?: LegalSubsection[];
+}
+
+export interface LegalArticleSection {
+  id: string;
+  sectionNumber: string;
+  sectionTitle: string;
+  content: string;
+  subsections?: LegalSubsection[];
+  mandateCategory?: 'mandatory' | 'prohibitive' | 'advisory' | 'penal';
+  scannedPageRef?: number | string;
+}
+
+export interface LegalArticle {
+  id: string;
+  articleNumber: string;
+  articleTitle: string;
+  sections: LegalArticleSection[];
+}
+
+export interface LocationalDesignStandardItem {
+  id: string;
+  category: 'poultry' | 'piggery';
+  classification: string;
+  headsRange: string;
+  eccRequired: boolean | string;
+  zone: string;
+  distanceGroundwater: number;
+  distanceBuiltUp: number | string;
+  distanceMajorRoads: number | string;
+  distanceBetweenFarms: number | string;
+  notes?: string;
+}
+
+export interface LegalProximityRegulation {
+  touristDestinationMinDistance: number; // 100m
+  touristDestinationTypes: string[];
+  environmentalMeasures: string[];
+  inspectionOffices: string[];
+  exemptionAuthority: string;
+}
+
+export interface LegalTaskForceMember {
+  role: string;
+  title: string;
+  office: string;
+}
+
+export interface LegalSourceAttachment {
+  id: string;
+  name: string;
+  originalFileName?: string;
+  pageNumber?: number;
+  url: string;
+  uploadedAt: string;
+  fileSize?: string | number;
+  fileType?: string;
+  uploadedBy?: string;
+  storagePath?: string;
+  documentId?: string;
+  version?: number;
+  checksum?: string;
+  extractedText?: string;
+}
+
+export interface LegalVersionHistory {
+  version: number;
+  versionLabel?: string; // e.g. "Version 1 Original", "Version 2 Amended", "Version 3 Current"
+  updatedAt: string;
+  updatedBy: string;
+  changeSummary: string;
+  documentSnapshot?: any;
+}
+
+export interface LegalAuditLog {
+  id: string;
+  action:
+    | 'created'
+    | 'viewed'
+    | 'edited'
+    | 'archived'
+    | 'restored'
+    | 'deleted'
+    | 'printed'
+    | 'attachment_uploaded'
+    | 'imported'
+    | 'classification_changed'
+    | 'section_added'
+    | 'landing_visibility_changed'
+    | 'report_generated'
+    | 'certificate_printed'
+    | 'certificate_downloaded'
+    | 'barangay_assignment_changed';
+  timestamp: string;
+  performedBy: string;
+  details: string;
+  documentId?: string;
+  previousValue?: string;
+  newValue?: string;
+}
+
+export interface LegalDocumentRelationship {
+  id: string;
+  targetDocNumber: string;
+  targetDocTitle: string;
+  relationshipType: 'revises' | 'implements' | 'related' | 'authorizes' | 'mandates';
+}
+
 export interface ASFRegulatoryDocument {
   id: string;
-  type: 'provincial_ordinance' | 'municipal_eo';
+  type: LegalDocumentType | string;
+  category?: LegalDocumentCategory;
   title: string;
   officialNumber: string;
   seriesYear: string;
+  jurisdiction?: string;
   issuingAuthority: string;
+  author?: string;
   signatory: string;
   signatoryTitle: string;
+  sessionInfo?: string;
+  dateEnacted?: string;
   effectiveDate: string;
+  status?: LegalDocumentStatus;
+  knownAs?: string;
   shortSummary: string;
+  description?: string;
+  fullText?: string;
   legalBasis: string[];
+  tags?: string[];
+  relatedDocumentIds?: string[];
+  relatedDocuments?: LegalDocumentRelationship[];
+  locationalStandards?: LocationalDesignStandardItem[];
+  proximityRegulations?: LegalProximityRegulation;
+  mltfMembers?: LegalTaskForceMember[];
+  articles?: LegalArticle[];
   keyArticles: {
     number: string;
     heading: string;
@@ -132,7 +281,12 @@ export interface ASFRegulatoryDocument {
     offenseTier: string;
     finePhp: number;
     punitiveActions: string;
+    imprisonment?: string;
   }[];
+  sourceDocuments?: LegalSourceAttachment[];
+  versionHistory?: LegalVersionHistory[];
+  auditLogs?: LegalAuditLog[];
+  isArchived?: boolean;
 }
 
 export interface CertificateSignatory {
@@ -141,6 +295,95 @@ export interface CertificateSignatory {
   title: string;
   office: string;
   order: number;
+}
+
+export type CertificateLogoPosition = 'left' | 'center' | 'right';
+export type CertificateLogoType = 'barangay' | 'municipality' | 'province' | 'da' | 'bagong_pilipinas' | 'custom';
+
+export interface CertificateLogoItem {
+  id: string;
+  type: CertificateLogoType;
+  position: CertificateLogoPosition;
+  customUrl?: string;
+  barangayName?: string;
+  widthPx: number;
+  heightPx: number;
+  alignment?: 'left' | 'center' | 'right';
+  order: number;
+  visible: boolean;
+}
+
+export interface CertificateWatermarkConfig {
+  enabled: boolean;
+  type: 'municipality' | 'barangay' | 'da' | 'province' | 'custom';
+  customUrl?: string;
+  barangayName?: string;
+  opacity: number; // e.g. 0.15
+  position: 'center';
+  size: 'small' | 'medium' | 'large';
+  grayscale?: boolean;
+}
+
+export interface CertificateDynamicSignatory {
+  id: string;
+  name: string;
+  position: string;
+  prefix?: string;
+  signatureImageUrl?: string;
+  showSignatureImage?: boolean;
+  showSignatureLine?: boolean;
+  lineWidth?: string;
+  lineAlignment?: 'left' | 'center' | 'right';
+  signatureWidth?: string;
+  signaturePosition?: 'above_line' | 'overlap_line';
+  order: number;
+  alignment?: 'left' | 'center' | 'right';
+  section?: 'left' | 'middle' | 'right' | 'noted_by' | 'certified_by' | 'main';
+  details?: string;
+}
+
+export interface CertificateHeaderConfig {
+  countryText: string;
+  provinceText: string;
+  municipalityText: string;
+  barangayText: string;
+  officeTitle?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  mottoOrSubtitle?: string;
+  borderStyle?: 'none' | 'single' | 'double' | 'green_line';
+}
+
+export interface CertificateReceiptConfig {
+  showReceiptBox: boolean;
+  orNumber?: string;
+  amountPaid?: string | number;
+  datePaid?: string;
+  issuedAt?: string;
+  formatStyle?: 'nava' | 'standard' | 'simple';
+}
+
+export interface CertificateTemplate {
+  id: string;
+  name: string;
+  barangay: string;
+  documentType: string;
+  documentTitle: string;
+  titleFont: 'gothic' | 'serif_underline' | 'serif_bold' | 'sans_bold';
+  language: 'english' | 'bisaya' | 'filipino' | 'custom';
+  pageSize: 'A4' | 'Letter' | 'Folio';
+  orientation: 'portrait' | 'landscape';
+  header: CertificateHeaderConfig;
+  logos: CertificateLogoItem[];
+  watermark: CertificateWatermarkConfig;
+  bodyTemplate: string;
+  noteText?: string;
+  signatories: CertificateDynamicSignatory[];
+  receipt: CertificateReceiptConfig;
+  isActive: boolean;
+  isDefaultPreset?: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CertificateTypeDefinition {
@@ -181,6 +424,7 @@ export interface IssuedCertificate {
   earTagNo: string;
   farmerName: string;
   farmerBarangay?: string;
+  barangay_id?: string; // canonical barangay foreign key e.g. "brgy-bugho"
   buyerName?: string;
   destinationBarangay?: string;
   destinationMunicipality?: string;
@@ -197,6 +441,36 @@ export interface IssuedCertificate {
   authorizedBy: string;
   status: 'active' | 'expired' | 'revoked' | 'completed';
   qrVerificationCode: string;
+  templateId?: string;
+  templateSnapshot?: CertificateTemplate;
+  renderedBody?: string;
+}
+
+export interface TransmittalLetter {
+  id: string;
+  refNo: string;
+  date: string;
+  from: string;
+  fromTitle: string;
+  to: string;
+  toTitle?: string;
+  subject: string;
+  barangay?: string;
+  municipality?: string;
+  province?: string;
+  documentCount?: number;
+  documentList?: string[];
+  preparedBy: string;
+  preparedByTitle: string;
+  verifiedBy?: string;
+  verifiedByTitle?: string;
+  approvedBy: string;
+  approvedByTitle: string;
+  contentTemplate?: string;
+  renderedContent?: string;
+  status: 'draft' | 'submitted' | 'approved' | 'transmitted';
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface MessageItem {
@@ -301,16 +575,31 @@ export type RegistryFieldType =
   | 'breed_select'
   | 'yes_no';
 
+export type AutoGenType =
+  | 'ear_tag' // HNG-[BRGY]-[YEAR]-[RAND4]
+  | 'tracking_code' // TRK-[YEAR]-[RAND6]
+  | 'timestamp' // YYYY-MM-DD HH:mm:ss
+  | 'uuid' // SWN-XXXX-XXXX
+  | 'custom_pattern'; // Custom pattern with [YEAR], [BRGY], [RAND4], etc.
+
 export interface RegistryFormField {
   id: string;
+  fieldKey?: string;
   label: string;
   type: RegistryFieldType;
   placeholder?: string;
   helpText?: string;
   required: boolean;
   visible: boolean;
+  isCustom?: boolean;
   options?: string[]; // for dropdown, radio, checkbox, multiselect
   defaultValue?: string | number | boolean | string[];
+  isFixed?: boolean; // Whether the input text is fixed (read-only/locked) or user-editable
+  fixedValue?: string; // Constant text value when isFixed is true
+  isAutoGenerated?: boolean; // Whether the field value is autogenerated by the system
+  autoGenType?: AutoGenType; // Format/pattern type for autogeneration
+  autoGenPattern?: string; // Custom template pattern (e.g. "HNG-[BRGY]-[YEAR]-[RAND4]" or "VET-[RAND6]")
+  autoGenPrefix?: string; // Custom prefix e.g. "HNG-"
 }
 
 export interface RegistryFormSection {

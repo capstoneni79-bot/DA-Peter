@@ -191,7 +191,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-stone-100/70 text-stone-900 flex flex-col font-sans antialiased selection:bg-emerald-200 relative">
+    <div className={`${currentRole === 'landing' ? 'min-h-screen' : 'h-screen max-h-screen overflow-hidden'} bg-stone-100/70 text-stone-900 flex flex-col font-sans antialiased selection:bg-emerald-200 relative`}>
       {/* Connected Interface Background Layer for Admin/Portal */}
       {interfaceBg?.imageUrl && interfaceBg.enabled !== false && currentRole !== 'landing' && (
         <div

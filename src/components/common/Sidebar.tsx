@@ -90,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div
-      className="w-full h-full text-white flex flex-col justify-between overflow-y-auto overflow-x-hidden select-none [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/35 transition-colors duration-200"
+      className="w-full h-full text-white flex flex-col justify-between overflow-y-auto overflow-x-hidden select-none custom-sidebar-scroll transition-colors duration-200"
       style={{
         backgroundColor: theme.backgroundColor || '#070e20',
       }}

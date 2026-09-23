@@ -13,13 +13,26 @@ const origError = console.error;
 console.error = (...args: unknown[]) => {
   const msg = args.map((a) => String(a)).join(' ');
   // Ignore benign Vite HMR websocket connection messages in container preview environment
-  if (msg.includes('failed to connect to websocket') || msg.includes('vite-pwa-plugin')) {
+  if (
+    msg.includes('failed to connect to websocket') ||
+    msg.includes('vite-pwa-plugin') ||
+    msg.includes('[vite]')
+  ) {
     return;
   }
   origError.apply(console, args);
   if (msg.includes('OverQuotaMapError') || msg.includes('QuotaExceededError')) {
     window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
   }
+};
+
+const origWarn = console.warn;
+console.warn = (...args: unknown[]) => {
+  const msg = args.map((a) => String(a)).join(' ');
+  if (msg.includes('[vite]') || msg.includes('websocket')) {
+    return;
+  }
+  origWarn.apply(console, args);
 };
 
 createRoot(document.getElementById('root')!).render(

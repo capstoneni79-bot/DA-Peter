@@ -27,6 +27,7 @@ import {
   Settings,
   CheckCircle2,
   Languages,
+  ChevronRight,
 } from 'lucide-react';
 import { UserAccount, UserRole } from '../../types';
 import { useOfflineStatus } from '../../hooks/useOfflineStatus';
@@ -72,8 +73,27 @@ export const Header: React.FC<HeaderProps> = ({
   const { language, setLanguage, t } = useLanguage();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isAdminDropdownOpen, setIsAdminDropdownOpen] = useState(false);
+  const [isLandingNavOpen, setIsLandingNavOpen] = useState(false);
   const logos = useOfficialLogos();
   const activeHeaderLogo = logos['logo-header'] || logos['logo-system'] || logos['logo-da'] || logos['logo-website'] || '/icon.svg';
+
+  const landingNavItems = [
+    { id: 'programs', label: 'Programs & Services', href: '#programs' },
+    { id: 'about', label: 'About Office', href: '#about' },
+    { id: 'barangays', label: '40 Barangays', href: '#barangays' },
+    { id: 'ordinances', label: 'Ordinances', fullLabel: 'Legal Decrees & Ordinances', href: '#ordinances' },
+    { id: 'biosecurity-map', label: 'Biosecurity GIS', href: '#biosecurity-map' },
+    { id: 'contact', label: 'Contact & Support', href: '#contact' },
+  ];
+
+  const scrollToLandingSection = (href: string) => {
+    setIsLandingNavOpen(false);
+    const targetId = href.replace('#', '');
+    const el = document.getElementById(targetId);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   const getRoleBadge = () => {
     if (currentRole === 'admin') {
@@ -193,27 +213,8 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Main navigation bar */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-4">
-        {/* Brand & Menu Button */}
+        {/* Brand Logo & Title */}
         <div className="flex items-center gap-3">
-          {/* Main Menu Toggle Button (Hidden on Landing Page) */}
-          {currentRole !== 'landing' && (
-            <button
-              type="button"
-              onClick={onToggleSidebar}
-              className={`px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border transition cursor-pointer flex items-center gap-2 font-bold text-xs shadow-2xs ${
-                isSidebarOpen
-                  ? 'bg-blue-900 border-blue-900 text-white shadow-xs'
-                  : 'border-stone-300 hover:border-blue-600 bg-white hover:bg-blue-50/60 text-slate-800 hover:text-blue-900'
-              }`}
-              title={isSidebarOpen ? t('nav_close_sidebar') : t('header_menu')}
-              aria-label="Toggle navigation menu"
-            >
-              {isSidebarOpen ? <X className="w-4 h-4 text-white" /> : <Menu className="w-4 h-4 text-blue-700" />}
-              <span className="hidden sm:inline font-bold">{t('header_menu')}</span>
-            </button>
-          )}
-
-          {/* Brand Logo & Title */}
           <div
             onClick={() => onSelectRole('landing')}
             className="flex items-center gap-2.5 cursor-pointer group select-none"
@@ -237,6 +238,22 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Center: Landing Page Navigation Links */}
+        {currentRole === 'landing' && (
+          <nav className="hidden lg:flex items-center gap-1 xl:gap-2">
+            {landingNavItems.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => scrollToLandingSection(item.href)}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-stone-700 hover:text-emerald-800 hover:bg-emerald-50/80 transition cursor-pointer whitespace-nowrap"
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        )}
 
         {/* Right Actions & User Account */}
         <div className="flex items-center gap-2 sm:gap-3">
@@ -268,8 +285,52 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Official Login</span>
             </button>
           )}
+
+          {/* Mobile Menu Toggle Button for Landing Page */}
+          {currentRole === 'landing' && (
+            <button
+              type="button"
+              onClick={() => setIsLandingNavOpen(prev => !prev)}
+              className="lg:hidden p-2 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 transition cursor-pointer"
+              aria-label="Toggle navigation menu"
+            >
+              {isLandingNavOpen ? <X className="w-4 h-4 text-emerald-800" /> : <Menu className="w-4 h-4 text-stone-700" />}
+            </button>
+          )}
+
+          {/* Mobile Sidebar Toggle Button for Authenticated Users (Small screens only, hidden on desktop) */}
+          {currentRole !== 'landing' && onToggleSidebar && (
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              className="lg:hidden p-2 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 transition cursor-pointer"
+              aria-label="Toggle navigation drawer"
+            >
+              <Menu className="w-4 h-4 text-stone-700" />
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Mobile Landing Dropdown Menu */}
+      {isLandingNavOpen && currentRole === 'landing' && (
+        <div className="lg:hidden border-t border-stone-200 bg-white/98 backdrop-blur-md px-4 py-3 space-y-1 shadow-lg animate-in slide-in-from-top-2 duration-150">
+          {landingNavItems.map(item => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => scrollToLandingSection(item.href)}
+              className="w-full text-left px-3 py-2 rounded-lg text-xs font-bold text-stone-800 hover:bg-emerald-50 hover:text-emerald-800 transition cursor-pointer flex items-center justify-between"
+            >
+              <span>{item.fullLabel || item.label}</span>
+              <ChevronRight className="w-3.5 h-3.5 text-stone-400" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Bottom Gold/Amber Accent Line as in official reference */}
+      <div className="h-1 bg-amber-500 w-full" />
     </header>
   );
 };

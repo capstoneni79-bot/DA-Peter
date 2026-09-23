@@ -5,6 +5,7 @@ import {
   INITIAL_BIOSECURITY_INCIDENTS,
   INITIAL_CERTIFICATE_CONFIG,
   INITIAL_DYNAMIC_FIELDS,
+  INITIAL_ISSUED_CERTIFICATES,
   INITIAL_LANDING_CONFIG,
   INITIAL_MARKETING_ALERTS,
   INITIAL_MESSAGES,
@@ -12,6 +13,7 @@ import {
   INITIAL_TAKEOFF_RECORDS,
 } from '../data/initialData';
 import { ALL_ASF_REGULATIONS } from '../data/asfRegulationsData';
+import { INITIAL_CERTIFICATE_TEMPLATES } from '../data/certificateTemplates';
 import { DEFAULT_SIDEBAR_THEME, INITIAL_REGISTRY_FORM_SCHEMA } from '../data/initialFormSchema';
 import {
   ASFRegulatoryDocument,
@@ -19,18 +21,22 @@ import {
   BarangayBiosecurityAudit,
   BiosecurityIncident,
   CertificateConfig,
+  CertificateTemplate,
   DynamicFormField,
   IssuedCertificate,
   LandingPageConfig,
   MarketingAlert,
   MessageItem,
   OfflineQueueItem,
+  RegistryFormField,
   RegistryFormSchema,
   SidebarTheme,
   SwineRecord,
   SwineTakeoffRecord,
+  TransmittalLetter,
   UserAccount,
 } from '../types';
+import { LegalImportHistoryRecord } from '../types/legalImport';
 
 const STORAGE_KEYS = {
   SWINE: 'da_hinunangan_swine_records_v1',
@@ -39,6 +45,8 @@ const STORAGE_KEYS = {
   MESSAGES: 'da_hinunangan_messages_v1',
   CERT_CONFIG: 'da_hinunangan_cert_config_v1',
   CERT_ISSUED: 'da_hinunangan_cert_issued_v1',
+  CERT_TEMPLATES: 'da_hinunangan_cert_templates_v2',
+  TRANSMITTAL_LETTERS: 'da_hinunangan_transmittal_letters_v1',
   LANDING: 'da_hinunangan_landing_config_v1',
   DYNAMIC_FORM: 'da_hinunangan_dynamic_form_v1',
   OFFLINE_QUEUE: 'da_hinunangan_offline_queue_v1',
@@ -49,6 +57,7 @@ const STORAGE_KEYS = {
   MARKETING_ALERTS: 'da_hinunangan_marketing_alerts_v1',
   TAKEOFF_RECORDS: 'da_hinunangan_takeoff_records_v1',
   ASF_REGULATIONS: 'da_hinunangan_asf_regulations_v1',
+  LEGAL_IMPORT_HISTORY: 'da_hinunangan_legal_import_history_v1',
   SIDEBAR_THEME: 'da_hinunangan_sidebar_theme_v1',
   REGISTRY_FORM_SCHEMA: 'da_hinunangan_registry_form_schema_v1',
   REGISTRY_FORM_SCHEMA_DRAFT: 'da_hinunangan_registry_form_schema_draft_v1',
@@ -165,9 +174,10 @@ export const storageService = {
   },
 
   addSwineRecord(record: SwineRecord): void {
-    // Backend/Database Layer Validation: Contact number must be exactly 11 numeric digits
-    if (!record.farmerContact || typeof record.farmerContact !== 'string' || !/^\d{11}$/.test(record.farmerContact)) {
-      throw new Error('Contact number must contain exactly 11 digits.');
+    // Backend/Database Layer Validation: Contact number must be valid Philippine mobile format
+    const contactDigits = (record.farmerContact || '').replace(/\D/g, '');
+    if (!record.farmerContact || typeof record.farmerContact !== 'string' || !(contactDigits.length === 10 || contactDigits.length === 11 || contactDigits.length === 12)) {
+      throw new Error('Contact number must be a valid Philippine mobile number.');
     }
 
     const records = this.getSwineRecords();
@@ -202,9 +212,10 @@ export const storageService = {
   },
 
   updateSwineRecord(updated: SwineRecord): void {
-    // Backend/Database Layer Validation: Contact number must be exactly 11 numeric digits
-    if (!updated.farmerContact || typeof updated.farmerContact !== 'string' || !/^\d{11}$/.test(updated.farmerContact)) {
-      throw new Error('Contact number must contain exactly 11 digits.');
+    // Backend/Database Layer Validation: Contact number must be valid Philippine mobile format
+    const contactDigits = (updated.farmerContact || '').replace(/\D/g, '');
+    if (!updated.farmerContact || typeof updated.farmerContact !== 'string' || !(contactDigits.length === 10 || contactDigits.length === 11 || contactDigits.length === 12)) {
+      throw new Error('Contact number must be a valid Philippine mobile number.');
     }
 
     const records = this.getSwineRecords();
@@ -356,22 +367,6 @@ export const storageService = {
     this.saveBarangays(list);
   },
 
-  saveDynamicField(field: DynamicFormField): void {
-    const list = this.getDynamicFields();
-    const idx = list.findIndex(f => f.id === field.id);
-    if (idx >= 0) {
-      list[idx] = { ...list[idx], ...field };
-    } else {
-      list.push(field);
-    }
-    this.saveDynamicFields(list);
-  },
-
-  deleteDynamicField(id: string): void {
-    const list = this.getDynamicFields().filter(f => f.id !== id);
-    this.saveDynamicFields(list);
-  },
-
   sendMessage(msg: MessageItem): void {
     const item: MessageItem = {
       ...msg,
@@ -489,6 +484,86 @@ export const storageService = {
     }
   },
 
+  // Certificate Templates System (Dynamic & Multi-Barangay)
+  getCertificateTemplates(): CertificateTemplate[] {
+    const stored = getItem<CertificateTemplate[] | null>(STORAGE_KEYS.CERT_TEMPLATES, null);
+    if (!stored || stored.length === 0) {
+      setItem(STORAGE_KEYS.CERT_TEMPLATES, INITIAL_CERTIFICATE_TEMPLATES);
+      return INITIAL_CERTIFICATE_TEMPLATES;
+    }
+    return stored;
+  },
+
+  saveCertificateTemplates(templates: CertificateTemplate[]): void {
+    setItem(STORAGE_KEYS.CERT_TEMPLATES, templates);
+  },
+
+  getCertificateTemplateById(id: string): CertificateTemplate | undefined {
+    const templates = this.getCertificateTemplates();
+    return templates.find(t => t.id === id);
+  },
+
+  getCertificateTemplateForBarangay(barangayName: string, docType?: string): CertificateTemplate {
+    const templates = this.getCertificateTemplates();
+    const cleanBrgy = (barangayName || '').trim().toLowerCase();
+
+    // 1. Exact match for barangay and docType
+    if (docType) {
+      const match = templates.find(
+        t => t.barangay.toLowerCase() === cleanBrgy && t.documentType.toLowerCase() === docType.toLowerCase() && t.isActive
+      );
+      if (match) return match;
+    }
+
+    // 2. Exact match for barangay
+    const brgyMatch = templates.find(
+      t => t.barangay.toLowerCase() === cleanBrgy && t.isActive
+    );
+    if (brgyMatch) return brgyMatch;
+
+    // 3. Fallback matching name pattern
+    if (cleanBrgy.includes('nava')) {
+      const nava = templates.find(t => t.id.includes('nava') || t.barangay.toLowerCase().includes('nava'));
+      if (nava) return nava;
+    }
+    if (cleanBrgy.includes('nueva esperanza')) {
+      const ne = templates.find(t => t.id.includes('nueva-esperanza') || t.barangay.toLowerCase().includes('nueva esperanza'));
+      if (ne) return ne;
+    }
+    if (cleanBrgy.includes('tuburan')) {
+      const tub = templates.find(t => t.id.includes('tuburan') || t.barangay.toLowerCase().includes('tuburan'));
+      if (tub) return tub;
+    }
+
+    // 4. Default to first active template or Nava
+    return templates.find(t => t.isActive) || INITIAL_CERTIFICATE_TEMPLATES[0];
+  },
+
+  saveCertificateTemplate(template: CertificateTemplate): void {
+    const templates = this.getCertificateTemplates();
+    const idx = templates.findIndex(t => t.id === template.id);
+    const updatedTemplate = {
+      ...template,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (idx >= 0) {
+      templates[idx] = updatedTemplate;
+    } else {
+      templates.push(updatedTemplate);
+    }
+    this.saveCertificateTemplates(templates);
+  },
+
+  deleteCertificateTemplate(id: string): void {
+    const templates = this.getCertificateTemplates().filter(t => t.id !== id);
+    this.saveCertificateTemplates(templates);
+  },
+
+  resetCertificateTemplatesToDefault(): void {
+    setItem(STORAGE_KEYS.CERT_TEMPLATES, INITIAL_CERTIFICATE_TEMPLATES);
+  },
+
   // Certificate Config & Issued
   getCertificateConfig(): CertificateConfig {
     return getItem<CertificateConfig>(STORAGE_KEYS.CERT_CONFIG, INITIAL_CERTIFICATE_CONFIG);
@@ -498,21 +573,100 @@ export const storageService = {
     setItem(STORAGE_KEYS.CERT_CONFIG, config);
   },
 
-  getIssuedCertificates(): IssuedCertificate[] {
-    return getItem<IssuedCertificate[]>(STORAGE_KEYS.CERT_ISSUED, []);
+  getAllIssuedCertificatesUnfiltered(): IssuedCertificate[] {
+    let list = getItem<IssuedCertificate[]>(STORAGE_KEYS.CERT_ISSUED, []);
+    if (!list || list.length === 0) {
+      list = [...INITIAL_ISSUED_CERTIFICATES];
+      setItem(STORAGE_KEYS.CERT_ISSUED, list);
+    }
+    return list;
+  },
+
+  getIssuedCertificates(user?: UserAccount | null): IssuedCertificate[] {
+    const list = this.getAllIssuedCertificatesUnfiltered();
+    if (!user || user.role === 'admin') {
+      return list;
+    }
+
+    const userBarangayId =
+      user.barangay_id ||
+      (user.assignedBarangay ? `brgy-${user.assignedBarangay.toLowerCase().replace(/\s+/g, '-')}` : '');
+    const userBarangayName = (user.assignedBarangay || '').trim().toLowerCase();
+
+    return list.filter(c => {
+      const matchId = Boolean(c.barangay_id && userBarangayId && c.barangay_id === userBarangayId);
+      const matchFarmer = Boolean(
+        c.farmerBarangay && userBarangayName && c.farmerBarangay.trim().toLowerCase() === userBarangayName
+      );
+      const matchIssuer = Boolean(
+        c.issuingBarangay && userBarangayName && c.issuingBarangay.trim().toLowerCase() === userBarangayName
+      );
+      return matchId || matchFarmer || matchIssuer;
+    });
+  },
+
+  checkCertificateAccess(
+    certNo: string,
+    user?: UserAccount | null
+  ): { authorized: boolean; certificate?: IssuedCertificate; error?: string } {
+    const list = this.getAllIssuedCertificatesUnfiltered();
+    const cert = list.find(c => c.certificateNo === certNo);
+    if (!cert) {
+      return { authorized: false, error: 'Certificate record was not found in the official registry.' };
+    }
+    if (!user || user.role === 'admin') {
+      return { authorized: true, certificate: cert };
+    }
+
+    const userBarangayId =
+      user.barangay_id ||
+      (user.assignedBarangay ? `brgy-${user.assignedBarangay.toLowerCase().replace(/\s+/g, '-')}` : '');
+    const userBarangayName = (user.assignedBarangay || '').trim().toLowerCase();
+
+    const matchId = Boolean(cert.barangay_id && userBarangayId && cert.barangay_id === userBarangayId);
+    const matchFarmer = Boolean(
+      cert.farmerBarangay && userBarangayName && cert.farmerBarangay.trim().toLowerCase() === userBarangayName
+    );
+    const matchIssuer = Boolean(
+      cert.issuingBarangay && userBarangayName && cert.issuingBarangay.trim().toLowerCase() === userBarangayName
+    );
+
+    if (matchId || matchFarmer || matchIssuer) {
+      return { authorized: true, certificate: cert };
+    }
+
+    const certBarangay = cert.farmerBarangay || cert.issuingBarangay || 'another barangay';
+    return {
+      authorized: false,
+      error: `Access Denied: You are not authorized to view this certificate. It belongs to Barangay ${certBarangay}. Your account is assigned strictly to Barangay ${user.assignedBarangay || user.barangay_id}.`,
+    };
   },
 
   saveIssuedCertificates(list: IssuedCertificate[]): void {
     setItem(STORAGE_KEYS.CERT_ISSUED, list);
   },
 
-  deleteIssuedCertificate(certNo: string): void {
-    const list = this.getIssuedCertificates().filter(c => c.certificateNo !== certNo);
+  deleteIssuedCertificate(certNo: string, user?: UserAccount | null): void {
+    const list = this.getAllIssuedCertificatesUnfiltered().filter(c => c.certificateNo !== certNo);
     this.saveIssuedCertificates(list);
+
+    // Sync deletion with Express backend
+    try {
+      fetch(`/api/certificates/${encodeURIComponent(certNo)}`, {
+        method: 'DELETE',
+        headers: {
+          'x-user-role': user?.role || 'admin',
+          'x-user-barangay-id': user?.barangay_id || '',
+          'x-user-barangay-name': user?.assignedBarangay || '',
+        },
+      }).catch(err => console.warn('Backend API certificate delete sync warning:', err));
+    } catch {
+      // offline fallback
+    }
   },
 
   updateIssuedCertificate(cert: IssuedCertificate): void {
-    const list = this.getIssuedCertificates();
+    const list = this.getAllIssuedCertificatesUnfiltered();
     const idx = list.findIndex(c => c.certificateNo === cert.certificateNo);
     if (idx !== -1) {
       list[idx] = cert;
@@ -520,10 +674,26 @@ export const storageService = {
     }
   },
 
-  issueCertificate(cert: IssuedCertificate): void {
-    const list = this.getIssuedCertificates();
+  issueCertificate(cert: IssuedCertificate, user?: UserAccount | null): void {
+    const list = this.getAllIssuedCertificatesUnfiltered();
     list.unshift(cert);
     setItem(STORAGE_KEYS.CERT_ISSUED, list);
+
+    // Sync issuance with Express backend
+    try {
+      fetch('/api/certificates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || 'focal',
+          'x-user-barangay-id': user?.barangay_id || '',
+          'x-user-barangay-name': user?.assignedBarangay || '',
+        },
+        body: JSON.stringify(cert),
+      }).catch(err => console.warn('Backend API certificate issue sync warning:', err));
+    } catch {
+      // offline fallback
+    }
 
     if (this.isEffectiveOffline()) {
       this.enqueueOfflineAction({
@@ -536,13 +706,204 @@ export const storageService = {
     }
   },
 
+  async fetchIssuedCertificatesFromApi(user?: UserAccount | null): Promise<IssuedCertificate[]> {
+    try {
+      const headers: Record<string, string> = {};
+      if (user?.role) headers['x-user-role'] = user.role;
+      if (user?.barangay_id) headers['x-user-barangay-id'] = user.barangay_id;
+      if (user?.assignedBarangay) headers['x-user-barangay-name'] = user.assignedBarangay;
+
+      const res = await fetch('/api/certificates', { headers });
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.success && Array.isArray(json.data)) {
+          return json.data;
+        }
+      }
+    } catch (err) {
+      console.warn('API certificate fetch warning, using local cache:', err);
+    }
+    return this.getIssuedCertificates(user);
+  },
+
+  async fetchOfficialReportFromApi(
+    params: { barangay?: string; type?: string; startDate?: string; endDate?: string },
+    user?: UserAccount | null
+  ): Promise<IssuedCertificate[]> {
+    try {
+      const query = new URLSearchParams();
+      if (params.barangay) query.set('barangay', params.barangay);
+      if (params.type) query.set('type', params.type);
+      if (params.startDate) query.set('startDate', params.startDate);
+      if (params.endDate) query.set('endDate', params.endDate);
+
+      const headers: Record<string, string> = {};
+      if (user?.role) headers['x-user-role'] = user.role;
+      if (user?.barangay_id) headers['x-user-barangay-id'] = user.barangay_id;
+      if (user?.assignedBarangay) headers['x-user-barangay-name'] = user.assignedBarangay;
+
+      const res = await fetch(`/api/reports/official?${query.toString()}`, { headers });
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.success && Array.isArray(json.data)) {
+          return json.data;
+        }
+      }
+    } catch (err) {
+      console.warn('API report fetch warning, using local filtering:', err);
+    }
+    return this.getIssuedCertificates(user);
+  },
+
+  // Transmittal Letters Management
+  getTransmittalLetters(): TransmittalLetter[] {
+    const defaultLetters: TransmittalLetter[] = [
+      {
+        id: 'transmittal-2026-001',
+        refNo: 'TM-OMAS-2026-042',
+        date: new Date().toISOString().split('T')[0],
+        from: 'Engr. Arnel M. Vasquez',
+        fromTitle: 'Municipal Agriculturist',
+        to: 'Provincial Veterinary Office (PVO)\nProvince of Southern Leyte\nCapitol Site, Asuncion, Maasin City',
+        toTitle: 'Provincial Veterinarian',
+        subject: 'TRANSMITTAL OF SWINE BIOSECURITY & MASTERLIST REGISTRY FOR CY 2026',
+        barangay: 'All 40 Barangays of Hinunangan',
+        municipality: 'Hinunangan',
+        province: 'Southern Leyte',
+        documentCount: 40,
+        documentList: [
+          'Official Masterlist of Registered Swine Raisers (CY 2026)',
+          'Barangay Biosecurity Assessment Compliance Audits (40 Barangays)',
+          'ASF Movement Clearances and Veterinary Inspection Certificates',
+          'Municipal ASF Executive Order & Zoning Compliance Report',
+        ],
+        preparedBy: 'HON. VICENTE T. MADRONERO JR.',
+        preparedByTitle: 'LGU Hinunangan Swine Registry Coordinator',
+        verifiedBy: 'RANDY N. BURLAZA',
+        verifiedByTitle: 'Barangay Biosecurity Officer (BBO)',
+        approvedBy: 'ENGR. ARNEL M. VASQUEZ',
+        approvedByTitle: 'Municipal Agriculturist',
+        contentTemplate: `Respectfully transmitting herewith the attached official documents from the Department of Agriculture - Office of the Municipal Agriculturist (DA-OMAS), Municipality of Hinunangan, Southern Leyte:
+
+1. {{document_list}}
+
+These documents certify that the swine raisers within the {{barangay}}, Municipality of {{municipality}}, Province of {{province}} have been duly audited and verified under the National African Swine Fever Prevention and Control Program (BABay ASF).
+
+For your information, verification, and official record.`,
+        status: 'submitted',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: 'transmittal-2026-002',
+        refNo: 'TM-OMAS-2026-088',
+        date: new Date().toISOString().split('T')[0],
+        from: 'Engr. Arnel M. Vasquez',
+        fromTitle: 'Municipal Agriculturist',
+        to: 'Bureau of Animal Industry (BAI) - Region VIII\nDepartment of Agriculture Regional Field Office 8\nKanhuraw Hill, Tacloban City',
+        toTitle: 'Regional Executive Director',
+        subject: 'MUNICIPAL SWINE DISPATCH & BARANGAY CLEARANCES TRANSMITTAL',
+        barangay: 'Barangays Nava, Nueva Esperanza, and Tuburan',
+        municipality: 'Hinunangan',
+        province: 'Southern Leyte',
+        documentCount: 18,
+        documentList: [
+          'Barangay Livestock Transit & Slaughter Clearances',
+          'Veterinary Health Certificates (VHC) Batch Dispatches',
+          'Swine Ear Tag Geo-Verification Records',
+        ],
+        preparedBy: 'HON. VICENTE T. MADRONERO JR.',
+        preparedByTitle: 'Punong Barangay & Agriculture Committee Chair',
+        verifiedBy: 'RANDY N. BURLAZA',
+        verifiedByTitle: 'Municipal Livestock Inspector',
+        approvedBy: 'ENGR. ARNEL M. VASQUEZ',
+        approvedByTitle: 'Municipal Agriculturist',
+        contentTemplate: `Respectfully submitting to your good office the consolidated livestock certifications and biosecurity clearances for the Municipality of {{municipality}}, {{province}}:
+
+{{document_list}}
+
+Total Documents Transmitted: {{document_count}} set(s).
+Prepared for regional trade accreditation and ASF Green Zone maintenance.`,
+        status: 'approved',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+
+    const stored = getItem<TransmittalLetter[] | null>(STORAGE_KEYS.TRANSMITTAL_LETTERS, null);
+    if (!stored || stored.length === 0) {
+      setItem(STORAGE_KEYS.TRANSMITTAL_LETTERS, defaultLetters);
+      return defaultLetters;
+    }
+    return stored;
+  },
+
+  saveTransmittalLetters(letters: TransmittalLetter[]): void {
+    setItem(STORAGE_KEYS.TRANSMITTAL_LETTERS, letters);
+  },
+
+  getTransmittalLetterById(id: string): TransmittalLetter | undefined {
+    return this.getTransmittalLetters().find(l => l.id === id);
+  },
+
+  saveTransmittalLetter(letter: TransmittalLetter): void {
+    const list = this.getTransmittalLetters();
+    const idx = list.findIndex(l => l.id === letter.id);
+    const updated = {
+      ...letter,
+      updatedAt: new Date().toISOString(),
+    };
+    if (idx >= 0) {
+      list[idx] = updated;
+    } else {
+      list.unshift(updated);
+    }
+    this.saveTransmittalLetters(list);
+  },
+
+  deleteTransmittalLetter(id: string): void {
+    const list = this.getTransmittalLetters().filter(l => l.id !== id);
+    this.saveTransmittalLetters(list);
+  },
+
   // Landing Page Customization
   getLandingConfig(): LandingPageConfig {
     return getItem<LandingPageConfig>(STORAGE_KEYS.LANDING, INITIAL_LANDING_CONFIG);
   },
 
-  saveLandingConfig(config: LandingPageConfig): void {
+  saveLandingConfig(config: LandingPageConfig, user?: UserAccount | null): void {
     setItem(STORAGE_KEYS.LANDING, config);
+
+    // Sync with backend Express API
+    try {
+      fetch('/api/landing/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || 'admin',
+          'x-user-name': user?.name || 'Administrator',
+        },
+        body: JSON.stringify(config),
+      }).catch(err => console.warn('Landing config backend sync warning:', err));
+    } catch {
+      // offline fallback
+    }
+  },
+
+  async fetchLandingConfigFromApi(): Promise<LandingPageConfig> {
+    try {
+      const res = await fetch('/api/landing/settings');
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.success && json.data) {
+          setItem(STORAGE_KEYS.LANDING, json.data);
+          return json.data;
+        }
+      }
+    } catch (err) {
+      console.warn('API landing config fetch warning, using local cache:', err);
+    }
+    return this.getLandingConfig();
   },
 
   // Dynamic Form Config
@@ -557,6 +918,69 @@ export const storageService = {
 
   saveDynamicFields(fields: DynamicFormField[]): void {
     setItem(STORAGE_KEYS.DYNAMIC_FORM, fields);
+  },
+
+  saveDynamicField(field: DynamicFormField): void {
+    const list = this.getDynamicFields();
+    const idx = list.findIndex(f => f.id === field.id);
+    if (idx >= 0) {
+      list[idx] = field;
+    } else {
+      list.push(field);
+    }
+    this.saveDynamicFields(list);
+
+    // Also synchronize field directly into current RegistryFormSchema so both are in 100% sync
+    try {
+      const schema = this.getRegistryFormSchema();
+      const targetSecId = field.section === 'farmer' ? 'sec_farmer' : field.section === 'swine' ? 'sec_swine' : 'sec_biosecurity';
+      let sec = schema.sections.find(s => s.id === targetSecId);
+      if (!sec) {
+        sec = schema.sections[0];
+      }
+      if (sec) {
+        const regField: RegistryFormField = {
+          id: field.id,
+          fieldKey: field.id.replace(/^dyn-/, '').toLowerCase(),
+          label: field.label,
+          type: field.type === 'select' ? 'dropdown' : field.type === 'checkbox' ? 'checkbox' : field.type === 'number' ? 'number' : 'text',
+          placeholder: field.placeholder,
+          required: field.required,
+          visible: field.enabled !== false,
+          options: field.options,
+        };
+        const fIdx = sec.fields.findIndex(f => f.id === field.id);
+        if (fIdx >= 0) {
+          sec.fields[fIdx] = regField;
+        } else {
+          sec.fields.push(regField);
+        }
+        this.saveRegistryFormSchema(schema);
+      }
+    } catch {
+      // ignore
+    }
+  },
+
+  deleteDynamicField(id: string): void {
+    const list = this.getDynamicFields().filter(f => f.id !== id);
+    this.saveDynamicFields(list);
+
+    // Also remove or hide from schema
+    try {
+      const schema = this.getRegistryFormSchema();
+      let changed = false;
+      schema.sections.forEach(sec => {
+        const initialLen = sec.fields.length;
+        sec.fields = sec.fields.filter(f => f.id !== id);
+        if (sec.fields.length !== initialLen) changed = true;
+      });
+      if (changed) {
+        this.saveRegistryFormSchema(schema);
+      }
+    } catch {
+      // ignore
+    }
   },
 
   // Offline Queue
@@ -727,45 +1151,427 @@ export const storageService = {
     this.saveTakeoffRecords(list);
   },
 
-  // African Swine Fever (ASF) Regulations & Executive Orders
+  // African Swine Fever (ASF) Regulations & Executive Orders / Legal Decrees
   getAsfRegulations(): ASFRegulatoryDocument[] {
     const stored = getItem<ASFRegulatoryDocument[] | null>(STORAGE_KEYS.ASF_REGULATIONS, null);
-    if (!stored || stored.length === 0) {
+    if (!stored || stored.length === 0 || !stored.some(d => d.id === 'mo-hinunangan-2025-59' && d.articles && d.articles.length >= 10)) {
       setItem(STORAGE_KEYS.ASF_REGULATIONS, ALL_ASF_REGULATIONS);
       return ALL_ASF_REGULATIONS;
     }
-    return stored;
+    // Deduplicate by ID to guarantee unique keys across all components and storage
+    const seenIds = new Set<string>();
+    const deduplicated: ASFRegulatoryDocument[] = [];
+    for (const doc of stored) {
+      if (doc && doc.id && !seenIds.has(doc.id)) {
+        seenIds.add(doc.id);
+        deduplicated.push(doc);
+      }
+    }
+    if (deduplicated.length !== stored.length) {
+      setItem(STORAGE_KEYS.ASF_REGULATIONS, deduplicated);
+    }
+    return deduplicated;
   },
 
   saveAsfRegulations(docs: ASFRegulatoryDocument[]): void {
-    setItem(STORAGE_KEYS.ASF_REGULATIONS, docs);
+    const seenIds = new Set<string>();
+    const deduplicated = docs.filter(d => {
+      if (!d || !d.id || seenIds.has(d.id)) return false;
+      seenIds.add(d.id);
+      return true;
+    });
+    setItem(STORAGE_KEYS.ASF_REGULATIONS, deduplicated);
   },
 
-  updateAsfRegulation(doc: ASFRegulatoryDocument): void {
+  updateAsfRegulation(doc: ASFRegulatoryDocument, performedBy?: string, changeSummary?: string): void {
     const list = this.getAsfRegulations();
     const idx = list.findIndex(d => d.id === doc.id);
+    
+    // Auto add version and audit
+    const updatedDoc: ASFRegulatoryDocument = { ...doc };
+    if (changeSummary) {
+      const versions = updatedDoc.versionHistory || [];
+      const newVersion = (versions[0]?.version || 1) + 1;
+      updatedDoc.versionHistory = [
+        {
+          version: newVersion,
+          updatedAt: new Date().toISOString(),
+          updatedBy: performedBy || 'System Admin',
+          changeSummary,
+        },
+        ...versions,
+      ];
+      
+      const logs = updatedDoc.auditLogs || [];
+      updatedDoc.auditLogs = [
+        {
+          id: `log-${Date.now()}`,
+          action: 'edited',
+          timestamp: new Date().toISOString(),
+          performedBy: performedBy || 'System Admin',
+          details: changeSummary,
+        },
+        ...logs,
+      ];
+    }
+
     if (idx >= 0) {
-      list[idx] = doc;
+      list[idx] = updatedDoc;
     } else {
-      list.push(doc);
+      list.push(updatedDoc);
     }
     this.saveAsfRegulations(list);
+
+    // Sync update to Express backend API
+    try {
+      fetch(`/api/legal-documents/${encodeURIComponent(updatedDoc.id)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': 'admin',
+          'x-user-name': performedBy || 'System Admin',
+        },
+        body: JSON.stringify(updatedDoc),
+      }).catch(err => console.warn('Legal document API update warning:', err));
+    } catch {
+      // offline fallback
+    }
   },
 
-  addAsfRegulation(doc: ASFRegulatoryDocument): void {
+  addAsfRegulation(doc: ASFRegulatoryDocument, performedBy?: string): void {
     const list = this.getAsfRegulations();
-    list.push(doc);
+    const existingIndex = list.findIndex(d => d.id === doc.id);
+    const newDoc: ASFRegulatoryDocument = {
+      ...doc,
+      id: doc.id || `doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      status: doc.status || 'active',
+      versionHistory: doc.versionHistory || [
+        {
+          version: 1,
+          updatedAt: new Date().toISOString(),
+          updatedBy: performedBy || 'System Admin',
+          changeSummary: 'Document created and enacted in system.',
+        },
+      ],
+      auditLogs: doc.auditLogs || [
+        {
+          id: `log-${Date.now()}`,
+          action: 'created',
+          timestamp: new Date().toISOString(),
+          performedBy: performedBy || 'System Admin',
+          details: `Document ${doc.officialNumber} created.`,
+        },
+      ],
+    };
+    if (existingIndex >= 0) {
+      list[existingIndex] = newDoc;
+    } else {
+      list.unshift(newDoc);
+    }
     this.saveAsfRegulations(list);
+
+    // Sync create to Express backend API
+    try {
+      fetch('/api/legal-documents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': 'admin',
+          'x-user-name': performedBy || 'System Admin',
+        },
+        body: JSON.stringify(newDoc),
+      }).catch(err => console.warn('Legal document API create warning:', err));
+    } catch {
+      // offline fallback
+    }
   },
 
-  deleteAsfRegulation(id: string): void {
+  archiveAsfRegulation(id: string, performedBy?: string): void {
+    const list = this.getAsfRegulations();
+    const idx = list.findIndex(d => d.id === id);
+    if (idx >= 0) {
+      list[idx] = {
+        ...list[idx],
+        status: 'archived',
+        isArchived: true,
+        auditLogs: [
+          {
+            id: `log-${Date.now()}`,
+            action: 'archived',
+            timestamp: new Date().toISOString(),
+            performedBy: performedBy || 'System Admin',
+            details: 'Document moved to archive.',
+          },
+          ...(list[idx].auditLogs || []),
+        ],
+      };
+      this.saveAsfRegulations(list);
+
+      try {
+        fetch(`/api/legal-documents/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-role': 'admin',
+            'x-user-name': performedBy || 'System Admin',
+          },
+          body: JSON.stringify(list[idx]),
+        }).catch(err => console.warn('Legal document API archive warning:', err));
+      } catch {
+        // offline fallback
+      }
+    }
+  },
+
+  restoreAsfRegulation(id: string, performedBy?: string): void {
+    const list = this.getAsfRegulations();
+    const idx = list.findIndex(d => d.id === id);
+    if (idx >= 0) {
+      list[idx] = {
+        ...list[idx],
+        status: 'active',
+        isArchived: false,
+        auditLogs: [
+          {
+            id: `log-${Date.now()}`,
+            action: 'restored',
+            timestamp: new Date().toISOString(),
+            performedBy: performedBy || 'System Admin',
+            details: 'Document restored to active status.',
+          },
+          ...(list[idx].auditLogs || []),
+        ],
+      };
+      this.saveAsfRegulations(list);
+
+      try {
+        fetch(`/api/legal-documents/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-role': 'admin',
+            'x-user-name': performedBy || 'System Admin',
+          },
+          body: JSON.stringify(list[idx]),
+        }).catch(err => console.warn('Legal document API restore warning:', err));
+      } catch {
+        // offline fallback
+      }
+    }
+  },
+
+  deleteAsfRegulation(id: string, performedBy?: string): void {
     const list = this.getAsfRegulations().filter(d => d.id !== id);
     this.saveAsfRegulations(list);
+
+    try {
+      fetch(`/api/legal-documents/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: {
+          'x-user-role': 'admin',
+          'x-user-name': performedBy || 'System Admin',
+        },
+      }).catch(err => console.warn('Legal document API delete warning:', err));
+    } catch {
+      // offline fallback
+    }
+  },
+
+  async fetchAsfRegulationsFromApi(): Promise<ASFRegulatoryDocument[]> {
+    try {
+      const res = await fetch('/api/legal-documents');
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.success && Array.isArray(json.data) && json.data.length > 0) {
+          setItem(STORAGE_KEYS.ASF_REGULATIONS, json.data);
+          return json.data;
+        }
+      }
+    } catch (err) {
+      console.warn('API legal regulations fetch warning, using local cache:', err);
+    }
+    return this.getAsfRegulations();
   },
 
   resetAsfRegulations(): ASFRegulatoryDocument[] {
     setItem(STORAGE_KEYS.ASF_REGULATIONS, ALL_ASF_REGULATIONS);
     return ALL_ASF_REGULATIONS;
+  },
+
+  // Legal Document Import History
+  getLegalImportHistory(): LegalImportHistoryRecord[] {
+    const defaultHistory: LegalImportHistoryRecord[] = [
+      {
+        id: 'hist-init-1',
+        fileName: 'Ordinance_No_2025_59_Hinunangan.pdf',
+        fileType: 'PDF',
+        fileSize: '1.8 MB',
+        documentTitle: 'AN ORDINANCE REGULATING THE OPERATIONS OF COMMERCIAL AND BACKYARD PIGGERY, POULTRY, AND OTHER LIVESTOCK OR ANIMAL FARMS IN HINUNANGAN, SOUTHERN LEYTE',
+        documentNumber: '2025-59',
+        documentType: 'Municipal Ordinance',
+        category: 'ordinance',
+        jurisdiction: 'Municipality of Hinunangan, Southern Leyte',
+        importedAt: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
+        importedBy: 'Admin (Hon. Gezar S. Ngoho Sponsor)',
+        status: 'Successful',
+        sectionsDetected: 25,
+        articlesDetected: 10,
+        documentId: 'mo-hinunangan-2025-59',
+        notes: 'Full legal structure with 10 Articles and 25 Sections recognized.',
+      },
+      {
+        id: 'hist-init-2',
+        fileName: 'Resolution_No_376_Series_2026.pdf',
+        fileType: 'PDF',
+        fileSize: '840 KB',
+        documentTitle: 'RESOLUTION MANDATING SYSTEMATIC REGISTRATION AND GEOREFERENCING OF LOCAL BREEDERS',
+        documentNumber: '376',
+        documentType: 'Resolution',
+        category: 'resolution',
+        jurisdiction: 'Municipality of Hinunangan, Southern Leyte',
+        importedAt: new Date(Date.now() - 3600000 * 24 * 4).toISOString(),
+        importedBy: 'Admin (Hon. Aida T. Bulingit Author)',
+        status: 'Successful',
+        sectionsDetected: 4,
+        articlesDetected: 1,
+        documentId: 'res-hinunangan-2026-376',
+        notes: 'Resolution on swine census and georeferencing imported.',
+      },
+    ];
+
+    const stored = getItem<LegalImportHistoryRecord[] | null>(STORAGE_KEYS.LEGAL_IMPORT_HISTORY, null);
+    if (!stored || stored.length === 0) {
+      setItem(STORAGE_KEYS.LEGAL_IMPORT_HISTORY, defaultHistory);
+      return defaultHistory;
+    }
+    return stored;
+  },
+
+  saveLegalImportHistory(history: LegalImportHistoryRecord[]): void {
+    setItem(STORAGE_KEYS.LEGAL_IMPORT_HISTORY, history);
+  },
+
+  addLegalImportHistory(record: LegalImportHistoryRecord): void {
+    const list = this.getLegalImportHistory();
+    list.unshift(record);
+    this.saveLegalImportHistory(list);
+  },
+
+  deleteLegalImportHistory(id: string): void {
+    const list = this.getLegalImportHistory().filter(h => h.id !== id);
+    this.saveLegalImportHistory(list);
+  },
+
+  // Deep search across all legal documents, articles, sections, and provisions
+  searchLegalDocumentsDeep(query: string): {
+    document: ASFRegulatoryDocument;
+    matches: {
+      type: 'title' | 'number' | 'tag' | 'author' | 'article' | 'section';
+      label: string;
+      snippet: string;
+      articleId?: string;
+      sectionId?: string;
+    }[];
+  }[] {
+    if (!query.trim()) return [];
+    const q = query.toLowerCase().trim();
+    const docs = this.getAsfRegulations();
+    const results: {
+      document: ASFRegulatoryDocument;
+      matches: {
+        type: 'title' | 'number' | 'tag' | 'author' | 'article' | 'section';
+        label: string;
+        snippet: string;
+        articleId?: string;
+        sectionId?: string;
+      }[];
+    }[] = [];
+
+    docs.forEach(doc => {
+      const docMatches: {
+        type: 'title' | 'number' | 'tag' | 'author' | 'article' | 'section';
+        label: string;
+        snippet: string;
+        articleId?: string;
+        sectionId?: string;
+      }[] = [];
+
+      if (doc.title.toLowerCase().includes(q)) {
+        docMatches.push({
+          type: 'title',
+          label: 'Official Title Match',
+          snippet: doc.title,
+        });
+      }
+      if (doc.officialNumber.toLowerCase().includes(q)) {
+        docMatches.push({
+          type: 'number',
+          label: 'Document Number Match',
+          snippet: `${doc.type} No. ${doc.officialNumber}`,
+        });
+      }
+      if (doc.author && doc.author.toLowerCase().includes(q)) {
+        docMatches.push({
+          type: 'author',
+          label: 'Author / Sponsor Match',
+          snippet: `Author: ${doc.author}`,
+        });
+      }
+      if (doc.tags && doc.tags.some(t => t.toLowerCase().includes(q))) {
+        const matchedTags = doc.tags.filter(t => t.toLowerCase().includes(q));
+        docMatches.push({
+          type: 'tag',
+          label: 'Tag Match',
+          snippet: matchedTags.join(', '),
+        });
+      }
+
+      // Search inside Articles & Sections
+      (doc.articles || []).forEach(art => {
+        if (art.articleTitle.toLowerCase().includes(q) || art.articleNumber.toLowerCase().includes(q)) {
+          docMatches.push({
+            type: 'article',
+            label: `${art.articleNumber} Header`,
+            snippet: `${art.articleNumber} - ${art.articleTitle}`,
+            articleId: art.id,
+          });
+        }
+
+        art.sections.forEach(sec => {
+          const secTitleMatch = sec.sectionTitle.toLowerCase().includes(q) || sec.sectionNumber.toLowerCase().includes(q);
+          const secContentMatch = sec.content.toLowerCase().includes(q);
+
+          if (secTitleMatch || secContentMatch) {
+            let snippet = sec.content;
+            const idx = sec.content.toLowerCase().indexOf(q);
+            if (idx >= 0) {
+              const start = Math.max(0, idx - 60);
+              const end = Math.min(sec.content.length, idx + q.length + 80);
+              snippet = (start > 0 ? '...' : '') + sec.content.slice(start, end) + (end < sec.content.length ? '...' : '');
+            } else {
+              snippet = sec.content.slice(0, 120) + (sec.content.length > 120 ? '...' : '');
+            }
+
+            docMatches.push({
+              type: 'section',
+              label: `${sec.sectionNumber} (${sec.sectionTitle})`,
+              snippet,
+              articleId: art.id,
+              sectionId: sec.id,
+            });
+          }
+        });
+      });
+
+      if (docMatches.length > 0) {
+        results.push({
+          document: doc,
+          matches: docMatches,
+        });
+      }
+    });
+
+    return results;
   },
 
   // Sidebar Theme Customization
@@ -790,6 +1596,29 @@ export const storageService = {
     if (!stored || !stored.sections || stored.sections.length === 0) {
       setItem(STORAGE_KEYS.REGISTRY_FORM_SCHEMA, INITIAL_REGISTRY_FORM_SCHEMA);
       return INITIAL_REGISTRY_FORM_SCHEMA;
+    }
+    const hasOrdinanceField = stored.sections.some(s => s.fields?.some(f => f.id === 'fld_governing_ordinance'));
+    if (!hasOrdinanceField) {
+      const docSec = stored.sections.find(s => s.id === 'sec_documents') || stored.sections[stored.sections.length - 1];
+      if (docSec) {
+        docSec.fields.unshift({
+          id: 'fld_governing_ordinance',
+          label: 'Applicable Municipal Ordinance / Legal Decree',
+          type: 'dropdown',
+          placeholder: 'Select Applicable Ordinance or Resolution',
+          helpText: 'Official legal mandate and environmental buffer standards enforced for this farm',
+          required: true,
+          visible: true,
+          options: [
+            'Municipal Ordinance No. 2025-59 (Piggery & Poultry Regulation Ordinance - Baboyang Walang Amoy & Setbacks)',
+            'Resolution No. 376 Series of 2026 (Local Breeders & Backyard Raisers Registration with OMAS)',
+            'Provincial Ordinance No. 2023-144 (Southern Leyte Provincial Bantay ASF Ordinance)',
+            'Municipal Executive Order No. 12-2023 (Hinunangan ASF Border Disinfection & Biosecurity Protocols)',
+            'Provincial Ordinance No. 2021-018 (Swine Biosecurity & Inter-Barangay Movement Permitting)',
+          ],
+          defaultValue: 'Municipal Ordinance No. 2025-59 (Piggery & Poultry Regulation Ordinance - Baboyang Walang Amoy & Setbacks)',
+        });
+      }
     }
     return stored;
   },

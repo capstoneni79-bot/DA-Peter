@@ -52,6 +52,7 @@ export const SwineFarmRegistrationModal: React.FC<SwineFarmRegistrationModalProp
   const [growersCount, setGrowersCount] = useState<number>(5);
   const [pigletsCount, setPigletsCount] = useState<number>(6);
   const [primaryBreed, setPrimaryBreed] = useState('Landrace x Large White');
+  const [applicableOrdinance, setApplicableOrdinance] = useState('Municipal Ordinance No. 2025-59 (Piggery & Poultry Regulation Ordinance - Baboyang Walang Amoy & Setbacks)');
 
   // Biosecurity
   const [footbath, setFootbath] = useState(true);
@@ -172,6 +173,7 @@ export const SwineFarmRegistrationModal: React.FC<SwineFarmRegistrationModalProp
       },
       notes: `Official Farm Registration batch of ${totalHeads} heads (${sowsCount} sows, ${boarsCount} boars, ${growersCount} growers, ${pigletsCount} piglets). Classification: ${farmClassification.toUpperCase()}.`,
       registeredBy: 'MAO Hinunangan Registration Desk',
+      applicableOrdinanceNumber: applicableOrdinance,
       registeredAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isSynced: true,
@@ -480,7 +482,38 @@ export const SwineFarmRegistrationModal: React.FC<SwineFarmRegistrationModalProp
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-800 border-b border-stone-200 pb-1.5">
                 <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                <span>3. Biosecurity Compliance & Coordinates</span>
+                <span>3. Statutory Decree & Biosecurity Compliance</span>
+              </div>
+
+              {/* Governing Legal Ordinance Combo Box */}
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  Applicable Statutory Ordinance / Legal Decree <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={applicableOrdinance}
+                  onChange={e => setApplicableOrdinance(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-300 rounded-xl text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                >
+                  <option value="Municipal Ordinance No. 2025-59 (Piggery & Poultry Regulation Ordinance - Baboyang Walang Amoy & Setbacks)">
+                    Municipal Ordinance No. 2025-59 (Baboyang Walang Amoy, 25m/50m/100m Setbacks)
+                  </option>
+                  <option value="Resolution No. 376 Series of 2026 (Local Breeders & Backyard Raisers Registration with OMAS)">
+                    Resolution No. 376 Series of 2026 (Local Breeders & Backyard Raisers Registration)
+                  </option>
+                  <option value="Provincial Ordinance No. 2023-144 (Southern Leyte Provincial Bantay ASF Ordinance)">
+                    Provincial Ordinance No. 2023-144 (Provincial Bantay ASF Strict Quarantine)
+                  </option>
+                  <option value="Municipal Executive Order No. 12-2023 (Hinunangan ASF Border Disinfection & Biosecurity Protocols)">
+                    Municipal Executive Order No. 12-2023 (Border Disinfection & Kanin-Baboy Ban)
+                  </option>
+                  <option value="Provincial Ordinance No. 2021-018 (Swine Biosecurity & Inter-Barangay Movement Permitting)">
+                    Provincial Ordinance No. 2021-018 (Swine Biosecurity & Transport Permitting)
+                  </option>
+                </select>
+                <p className="text-[10px] text-stone-500 mt-1">
+                  Enforces Hinunangan environmental zoning buffers (50m backyard, 100m commercial, 25m water resources).
+                </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">

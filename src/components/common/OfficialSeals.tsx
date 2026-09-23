@@ -63,6 +63,70 @@ export function useOfficialLogos() {
  * with automatic fallback to custom uploaded images if configured.
  */
 
+export const SealBagongPilipinas: React.FC<{ className?: string; customUrl?: string; showSubtext?: boolean }> = ({
+  className = 'w-9 h-9',
+  customUrl,
+  showSubtext = false,
+}) => {
+  const logos = useOfficialLogos();
+  const activeUrl = customUrl || logos['logo-bagong-pilipinas'] || logos['cat-bagong-pilipinas'];
+
+  const sealGraphic = (
+    activeUrl && activeUrl.trim() !== '' && activeUrl !== '/icon.svg' ? (
+      <img
+        src={activeUrl}
+        alt="Bagong Pilipinas Seal"
+        className={`${className} shrink-0 select-none object-contain rounded-full`}
+        referrerPolicy="no-referrer"
+      />
+    ) : (
+      <svg
+        viewBox="0 0 100 100"
+        className={`${className} shrink-0 select-none shadow-sm rounded-full`}
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {/* Outer Circular Gradient Ring */}
+        <circle cx="50" cy="50" r="48" fill="#ffffff" stroke="#1e3a8a" strokeWidth="2.5" />
+        {/* Blue Upper Semi-Arch */}
+        <path
+          d="M15 50 A35 35 0 0 1 85 50 L75 50 A25 25 0 0 0 25 50 Z"
+          fill="#1e40af"
+        />
+        {/* Red Lower Semi-Arch */}
+        <path
+          d="M15 50 A35 35 0 0 0 85 50 L75 50 A25 25 0 0 1 25 50 Z"
+          fill="#dc2626"
+        />
+        {/* Center Golden Sun with Rays */}
+        <circle cx="50" cy="50" r="14" fill="#fbbf24" stroke="#d97706" strokeWidth="1" />
+        {/* 8 Sun Rays */}
+        <path
+          d="M50 28 L52 35 L50 34 L48 35 Z M50 72 L52 65 L50 66 L48 65 Z M28 50 L35 52 L34 50 L35 48 Z M72 50 L65 52 L66 50 L65 48 Z M34 34 L41 39 L40 37 L38 36 Z M66 66 L59 61 L60 63 L62 64 Z M66 34 L59 39 L60 37 L62 36 Z M34 66 L41 61 L40 63 L38 64 Z"
+          fill="#f59e0b"
+        />
+        {/* 3 Golden Stars */}
+        <path d="M50 20 L51.5 24 L55.5 24 L52.5 26.5 L53.5 30.5 L50 28 L46.5 30.5 L47.5 26.5 L44.5 24 L48.5 24 Z" fill="#f59e0b" />
+        <path d="M22 65 L23 68 L26 68 L24 70 L24.5 73 L22 71 L19.5 73 L20 70 L18 68 L21 68 Z" fill="#f59e0b" />
+        <path d="M78 65 L79 68 L82 68 L80 70 L80.5 73 L78 71 L75.5 73 L76 70 L74 68 L77 68 Z" fill="#f59e0b" />
+      </svg>
+    )
+  );
+
+  if (showSubtext) {
+    return (
+      <div className="flex flex-col items-center">
+        {sealGraphic}
+        <span className="text-[7.5px] font-black tracking-wider text-blue-950 uppercase mt-0.5 leading-tight text-center">
+          BAGONG PILIPINAS
+        </span>
+      </div>
+    );
+  }
+
+  return sealGraphic;
+};
+
 export const SealDA: React.FC<{ className?: string; customUrl?: string }> = ({
   className = 'w-9 h-9',
   customUrl,
@@ -346,15 +410,239 @@ export const SealExtension: React.FC<{ className?: string; customUrl?: string }>
   );
 };
 
+export const SealBarangay: React.FC<{
+  barangayName?: string;
+  className?: string;
+  customUrl?: string;
+}> = ({ barangayName = 'NAVA', className = 'w-9 h-9', customUrl }) => {
+  const logos = useOfficialLogos();
+  const normalized = (barangayName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const activeUrl =
+    customUrl ||
+    logos[`logo-brgy-${normalized}`] ||
+    logos[`logo-barangay-${normalized}`] ||
+    logos[`logo-${normalized}`] ||
+    logos['logo-brgy-default'];
+
+  if (activeUrl && activeUrl.trim() !== '' && activeUrl !== '/icon.svg') {
+    return (
+      <img
+        src={activeUrl}
+        alt={`Barangay ${barangayName} Official Seal`}
+        className={`${className} shrink-0 select-none object-contain rounded-full`}
+        referrerPolicy="no-referrer"
+      />
+    );
+  }
+
+  // Specific visual styling for recognized authentic Hinunangan barangays
+  if (normalized.includes('tuburan')) {
+    return (
+      <svg
+        viewBox="0 0 100 100"
+        className={`${className} shrink-0 select-none shadow-sm rounded-full`}
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {/* Outer Forest Green Border */}
+        <circle cx="50" cy="50" r="48" fill="#14532d" stroke="#f59e0b" strokeWidth="2.5" />
+        <circle cx="50" cy="50" r="42" fill="#15803d" />
+        <circle cx="50" cy="50" r="38" fill="#ffffff" />
+        {/* Sky and Spring landscape */}
+        <circle cx="50" cy="50" r="34" fill="#bae6fd" />
+        {/* Mountain & Spring Water */}
+        <path d="M20 58 L38 42 L52 54 L70 40 L80 58 Z" fill="#166534" />
+        <path d="M30 58 Q50 48 70 58 L70 70 Q50 78 30 70 Z" fill="#0284c7" />
+        {/* Sun */}
+        <circle cx="50" cy="30" r="6" fill="#f59e0b" />
+        {/* Text Top & Bottom Arc */}
+        <text
+          x="50"
+          y="18"
+          fill="#ffffff"
+          fontSize="5.2"
+          fontWeight="900"
+          textAnchor="middle"
+          letterSpacing="0.4"
+          fontFamily="sans-serif"
+        >
+          BARANGAY TUBURAN
+        </text>
+        <text
+          x="50"
+          y="89"
+          fill="#fef08a"
+          fontSize="4.2"
+          fontWeight="bold"
+          textAnchor="middle"
+          letterSpacing="0.2"
+          fontFamily="sans-serif"
+        >
+          HINUNANGAN, SO. LEYTE • 1976
+        </text>
+      </svg>
+    );
+  }
+
+  if (normalized.includes('nuevaesperanza') || normalized.includes('esperanza')) {
+    return (
+      <svg
+        viewBox="0 0 100 100"
+        className={`${className} shrink-0 select-none shadow-sm rounded-full`}
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {/* Outer Golden Amber Ring */}
+        <circle cx="50" cy="50" r="48" fill="#78350f" stroke="#d97706" strokeWidth="2.5" />
+        <circle cx="50" cy="50" r="42" fill="#b45309" />
+        <circle cx="50" cy="50" r="38" fill="#ffffff" />
+        {/* Sun of Hope & Fields */}
+        <circle cx="50" cy="50" r="34" fill="#fef3c7" />
+        <circle cx="50" cy="38" r="10" fill="#f59e0b" />
+        {/* Sunrays */}
+        <path d="M50 20 L50 26 M36 28 L40 32 M64 28 L60 32 M30 38 L36 38 M64 38 L70 38" stroke="#d97706" strokeWidth="1.5" strokeLinecap="round" />
+        {/* Rolling Green Hills & Crops */}
+        <path d="M16 62 Q35 52 50 60 T84 62 L84 76 Q50 82 16 76 Z" fill="#15803d" />
+        <path d="M24 66 Q45 58 65 65" stroke="#86efac" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+        {/* Text Top & Bottom */}
+        <text
+          x="50"
+          y="18"
+          fill="#ffffff"
+          fontSize="4.8"
+          fontWeight="900"
+          textAnchor="middle"
+          letterSpacing="0.3"
+          fontFamily="sans-serif"
+        >
+          BRGY. NUEVA ESPERANZA
+        </text>
+        <text
+          x="50"
+          y="89"
+          fill="#fef08a"
+          fontSize="4.2"
+          fontWeight="bold"
+          textAnchor="middle"
+          letterSpacing="0.2"
+          fontFamily="sans-serif"
+        >
+          HINUNANGAN, SO. LEYTE
+        </text>
+      </svg>
+    );
+  }
+
+  // Default: BARANGAY NAVA / General Hinunangan Barangay Seal
+  return (
+    <svg
+      viewBox="0 0 100 100"
+      className={`${className} shrink-0 select-none shadow-sm rounded-full`}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* Outer Navy Ring */}
+      <circle cx="50" cy="50" r="48" fill="#0f172a" stroke="#0284c7" strokeWidth="2.5" />
+      <circle cx="50" cy="50" r="42" fill="#0369a1" />
+      <circle cx="50" cy="50" r="38" fill="#ffffff" />
+      {/* Sky */}
+      <circle cx="50" cy="50" r="34" fill="#e0f2fe" />
+      {/* Palm Trees & Island Hills (Barangay Nava Coastal) */}
+      <path d="M18 64 Q40 54 50 60 T82 64 L82 74 Q50 78 18 74 Z" fill="#15803d" />
+      {/* Coconut Palm Trunk & Fronds */}
+      <path d="M42 66 Q44 52 46 42" stroke="#78350f" strokeWidth="2" strokeLinecap="round" />
+      <path d="M46 42 Q38 38 34 44 M46 42 Q42 34 38 32 M46 42 Q52 34 56 34 M46 42 Q56 40 58 46" stroke="#16a34a" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+      {/* Second Palm */}
+      <path d="M58 66 Q57 55 54 46" stroke="#78350f" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M54 46 Q48 42 46 47 M54 46 Q52 38 50 36 M54 46 Q60 40 64 40 M54 46 Q62 45 64 50" stroke="#16a34a" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+      {/* Sun */}
+      <circle cx="34" cy="34" r="5" fill="#f59e0b" />
+      {/* Text */}
+      <text
+        x="50"
+        y="18"
+        fill="#ffffff"
+        fontSize="5.2"
+        fontWeight="900"
+        textAnchor="middle"
+        letterSpacing="0.4"
+        fontFamily="sans-serif"
+      >
+        BARANGAY {barangayName.toUpperCase()}
+      </text>
+      <text
+        x="50"
+        y="89"
+        fill="#fef08a"
+        fontSize="4.2"
+        fontWeight="bold"
+        textAnchor="middle"
+        letterSpacing="0.2"
+        fontFamily="sans-serif"
+      >
+        HINUNANGAN, SO. LEYTE
+      </text>
+    </svg>
+  );
+};
+
+export const SealProvince: React.FC<{ className?: string; customUrl?: string }> = ({
+  className = 'w-9 h-9',
+  customUrl,
+}) => {
+  const logos = useOfficialLogos();
+  const activeUrl = customUrl || logos['logo-province'] || logos['cat-province'];
+
+  if (activeUrl && activeUrl.trim() !== '' && activeUrl !== '/icon.svg') {
+    return (
+      <img
+        src={activeUrl}
+        alt="Province of Southern Leyte Seal"
+        className={`${className} shrink-0 select-none object-contain rounded-full`}
+        referrerPolicy="no-referrer"
+      />
+    );
+  }
+
+  return (
+    <svg
+      viewBox="0 0 100 100"
+      className={`${className} shrink-0 select-none shadow-sm rounded-full`}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <circle cx="50" cy="50" r="48" fill="#1e3a8a" stroke="#d97706" strokeWidth="2.5" />
+      <circle cx="50" cy="50" r="42" fill="#ffffff" />
+      <circle cx="50" cy="50" r="38" fill="#1e40af" />
+      <path d="M24 64 L50 36 L76 64 Z" fill="#15803d" />
+      <circle cx="50" cy="32" r="6" fill="#fbbf24" />
+      <path d="M26 74 L50 70 L74 74 L68 81 L50 78 L32 81 Z" fill="#d97706" />
+      <text x="50" y="77" fill="#ffffff" fontSize="5" fontWeight="900" textAnchor="middle" letterSpacing="0.4" fontFamily="sans-serif">
+        SOUTHERN LEYTE
+      </text>
+    </svg>
+  );
+};
+
 export const DynamicSeal: React.FC<{
-  type: 'da' | 'municipality' | 'mun' | 'taskforce' | 'slsu' | 'extension' | 'system' | 'sidebar' | 'header' | 'footer' | 'login' | string;
+  type: 'da' | 'municipality' | 'mun' | 'barangay' | 'brgy' | 'taskforce' | 'slsu' | 'extension' | 'system' | 'sidebar' | 'header' | 'footer' | 'login' | string;
+  barangayName?: string;
   className?: string;
   size?: number;
-}> = ({ type, className = 'w-9 h-9', size }) => {
+}> = ({ type, barangayName = 'NAVA', className = 'w-9 h-9', size }) => {
   const logos = useOfficialLogos();
   const normalized = (type || 'da').toLowerCase().replace('logo-', '').replace('seal', '');
   const style = size ? { width: size, height: size } : undefined;
 
+  if (normalized === 'bagong-pilipinas' || normalized === 'bp') {
+    return <SealBagongPilipinas className={className} customUrl={logos['logo-bagong-pilipinas'] || logos['cat-bagong-pilipinas']} showSubtext />;
+  }
+  if (normalized === 'barangay' || normalized === 'brgy') {
+    return <SealBarangay barangayName={barangayName} className={className} customUrl={logos['logo-barangay'] || logos[`logo-brgy-${barangayName.toLowerCase()}`]} />;
+  }
+  if (normalized === 'province') {
+    return <SealProvince className={className} customUrl={logos['logo-province']} />;
+  }
   if (normalized === 'da') {
     return <SealDA className={className} customUrl={logos['logo-da'] || logos['cat-da']} />;
   }

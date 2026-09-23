@@ -296,6 +296,23 @@ export const INITIAL_REGISTRY_FORM_SCHEMA: RegistryFormSchema = {
       description: 'Supporting certificates, clearances, and inspection logs.',
       fields: [
         {
+          id: 'fld_governing_ordinance',
+          label: 'Applicable Municipal Ordinance / Legal Decree',
+          type: 'dropdown',
+          placeholder: 'Select Applicable Ordinance or Resolution',
+          helpText: 'Official legal mandate and environmental buffer standards enforced for this farm',
+          required: true,
+          visible: true,
+          options: [
+            'Municipal Ordinance No. 2025-59 (Piggery & Poultry Regulation Ordinance - Baboyang Walang Amoy & Setbacks)',
+            'Resolution No. 376 Series of 2026 (Local Breeders & Backyard Raisers Registration with OMAS)',
+            'Provincial Ordinance No. 2023-144 (Southern Leyte Provincial Bantay ASF Ordinance)',
+            'Municipal Executive Order No. 12-2023 (Hinunangan ASF Border Disinfection & Biosecurity Protocols)',
+            'Provincial Ordinance No. 2021-018 (Swine Biosecurity & Inter-Barangay Movement Permitting)',
+          ],
+          defaultValue: 'Municipal Ordinance No. 2025-59 (Piggery & Poultry Regulation Ordinance - Baboyang Walang Amoy & Setbacks)',
+        },
+        {
           id: 'fld_brgy_clearance_file',
           label: 'Barangay Certification of Raiser',
           type: 'file',

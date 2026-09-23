@@ -28,6 +28,7 @@ import {
   Smartphone,
   Eye,
   FileEdit,
+  Scale,
 } from 'lucide-react';
 import { LandingCmsConfig } from '../../types/landingCms';
 import { landingCmsService } from '../../services/landingCmsService';
@@ -50,6 +51,7 @@ import { ContactTab } from './landing/tabs/ContactTab';
 import { FooterTab } from './landing/tabs/FooterTab';
 import { ThemeAppearanceTab } from './landing/tabs/ThemeAppearanceTab';
 import { PageBuilderTab } from './landing/tabs/PageBuilderTab';
+import { LegalDocumentsTab } from './landing/tabs/LegalDocumentsTab';
 
 export type CmsTabId =
   | 'general'
@@ -68,7 +70,8 @@ export type CmsTabId =
   | 'contact'
   | 'footer'
   | 'theme'
-  | 'page_builder';
+  | 'page_builder'
+  | 'legal_documents';
 
 interface NavTabItem {
   id: CmsTabId;
@@ -95,6 +98,7 @@ const CMS_NAV_TABS: NavTabItem[] = [
   { id: 'footer', label: '15. Footer Management', icon: Columns },
   { id: 'theme', label: '16. Theme & Appearance', icon: Palette },
   { id: 'page_builder', label: '17. Page Builder & Sections', icon: Sparkles },
+  { id: 'legal_documents', label: '18. Legal Decrees & Ordinances Settings', icon: Scale, badge: 'Database' },
 ];
 
 interface ManageLandingPageProps {
@@ -498,6 +502,9 @@ export const ManageLandingPage: React.FC<ManageLandingPageProps> = ({
                 )}
                 {activeTab === 'page_builder' && (
                   <PageBuilderTab config={config} onChange={updateConfig} />
+                )}
+                {activeTab === 'legal_documents' && (
+                  <LegalDocumentsTab config={config} onChange={updateConfig} />
                 )}
               </div>
             </div>

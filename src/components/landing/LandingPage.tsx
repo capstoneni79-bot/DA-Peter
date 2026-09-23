@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShieldCheck,
   Users,
   MapPin,
   ShoppingBag,
   ArrowRight,
-  LogIn,
   CheckCircle,
   ExternalLink,
   WifiOff,
@@ -19,13 +18,27 @@ import {
   Calendar,
   Video,
   X,
+  Scale,
+  BookOpen,
+  FileText,
+  Search,
+  CheckCircle2,
+  AlertTriangle,
+  Shield,
+  Activity,
+  Layers,
+  Info,
+  ChevronRight,
+  Eye,
+  Download,
 } from 'lucide-react';
-import { Barangay, LandingPageConfig, SwineRecord, UserAccount, UserRole } from '../../types';
+import { Barangay, LandingPageConfig, SwineRecord, UserAccount, UserRole, ASFRegulatoryDocument } from '../../types';
 import { LandingCmsConfig, VideoMediaItem } from '../../types/landingCms';
-import { landingCmsService } from '../../services/landingCmsService';
+import { landingCmsService, DEFAULT_LEGAL_DOCUMENTS_CONFIG } from '../../services/landingCmsService';
 import { storageService } from '../../services/storageService';
 import { OfficialSealBadge } from '../common/OfficialSeals';
 import { PWAInstallButton } from '../common/PWAInstallButton';
+import { HINUNANGAN_BARANGAYS } from '../../data/barangays';
 
 interface LandingPageProps {
   swineList?: SwineRecord[];
@@ -62,6 +75,73 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   const cmsConfig = overrideCmsConfig || publishedConfig;
   const [selectedVideo, setSelectedVideo] = useState<VideoMediaItem | null>(null);
+  const [currentLanguage, setCurrentLanguage] = useState<'EN' | 'CEB'>('EN');
+
+  // Interactive 15 Barangays & Biosecurity Directory State
+  const [barangaySearch, setBarangaySearch] = useState('');
+  const [barangayRiskFilter, setBarangayRiskFilter] = useState<'all' | 'green' | 'yellow' | 'red'>('all');
+  const [barangayViewMode, setBarangayViewMode] = useState<'top15' | 'all'>('top15');
+  const [selectedBarangayDetail, setSelectedBarangayDetail] = useState<{
+    name: string;
+    code: string;
+    riskLevel: 'green' | 'yellow' | 'red';
+    focalPersonName: string;
+    contactNumber: string;
+    swineCount: number;
+    readyToSellCount: number;
+    isUrban?: boolean;
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+
+  // Legal Ordinances Modal & Search State
+  const [selectedOrdinance, setSelectedOrdinance] = useState<ASFRegulatoryDocument | null>(null);
+  const [legalDocSearch, setLegalDocSearch] = useState('');
+  const allLegalDocuments = storageService.getAsfRegulations();
+
+  const legalLandingConfig = cmsConfig.legalDocumentsConfig || DEFAULT_LEGAL_DOCUMENTS_CONFIG;
+
+  const displayedLegalDocuments = useMemo(() => {
+    let docs = allLegalDocuments.filter(d => !d.isArchived && d.status !== 'archived');
+    if (legalDocSearch.trim()) {
+      const q = legalDocSearch.toLowerCase().trim();
+      return docs.filter(
+        d =>
+          (d.officialNumber || '').toLowerCase().includes(q) ||
+          (d.title || '').toLowerCase().includes(q) ||
+          (d.knownAs || '').toLowerCase().includes(q) ||
+          (d.shortSummary || '').toLowerCase().includes(q) ||
+          (d.category || '').toLowerCase().includes(q)
+      );
+    }
+    const featuredIds = legalLandingConfig.featuredDocumentIds || [];
+    if (legalLandingConfig.showFeaturedDocuments && featuredIds.length > 0) {
+      const featured = docs.filter(d => featuredIds.includes(d.id));
+      const nonFeatured = legalLandingConfig.showLatestDocuments
+        ? docs.filter(d => !featuredIds.includes(d.id))
+        : [];
+      docs = [...featured, ...nonFeatured];
+    }
+    return docs.slice(0, legalLandingConfig.maxFeaturedDocuments || 6);
+  }, [allLegalDocuments, legalLandingConfig, legalDocSearch]);
+
+  const top15BarangayNames = [
+    'Poblacion',
+    'Labrador',
+    'Canipaan',
+    'Bangcas A',
+    'Bangcas B',
+    'Ambacon',
+    'Badiangon',
+    'Calag-itan',
+    'Catbaloyan',
+    'Ilag',
+    'Ingan',
+    'Manalog',
+    'Nava',
+    'Otikon',
+    'Pondol',
+  ];
 
   const getYouTubeEmbedUrl = (url: string) => {
     if (!url) return '';
@@ -78,6 +158,51 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const readyToSellCount = effectiveSwineList.filter(s => !s.isArchived && s.readyToSell).length;
   const totalSwine = effectiveSwineList.filter(s => !s.isArchived).length;
   const uniqueFarmers = new Set(effectiveSwineList.filter(s => !s.isArchived).map(s => s.farmerName)).size;
+
+  const enrichedBarangays = useMemo(() => {
+    return HINUNANGAN_BARANGAYS.map(geo => {
+      const liveBg = effectiveBarangays.find(b => b.name.toLowerCase() === geo.name.toLowerCase());
+      const swineInBg = effectiveSwineList.filter(
+        s => !s.isArchived && (s.barangay || '').toLowerCase() === geo.name.toLowerCase()
+      );
+      const readyInBg = swineInBg.filter(s => s.readyToSell).length;
+      return {
+        id: geo.id,
+        name: geo.name,
+        code: geo.code,
+        riskLevel: (liveBg?.riskLevel || geo.defaultRiskLevel || 'green') as 'green' | 'yellow' | 'red',
+        focalPersonName: liveBg?.focalPersonName || geo.focalPersonName,
+        contactNumber: liveBg?.contactNumber || geo.contactNumber,
+        swineCount: swineInBg.length > 0 ? swineInBg.length : geo.defaultSwineCount,
+        readyToSellCount: readyInBg > 0 ? readyInBg : geo.defaultReadyToSellCount,
+        isUrban: geo.isUrban,
+        latitude: geo.latitude,
+        longitude: geo.longitude,
+      };
+    });
+  }, [effectiveBarangays, effectiveSwineList]);
+
+  const displayedBarangays = useMemo(() => {
+    let list = enrichedBarangays;
+    if (barangayViewMode === 'top15' && !barangaySearch.trim()) {
+      list = list.filter(b =>
+        top15BarangayNames.some(name => name.toLowerCase() === b.name.toLowerCase())
+      );
+    }
+    if (barangaySearch.trim()) {
+      const q = barangaySearch.toLowerCase().trim();
+      list = list.filter(
+        b =>
+          b.name.toLowerCase().includes(q) ||
+          b.code.toLowerCase().includes(q) ||
+          b.focalPersonName.toLowerCase().includes(q)
+      );
+    }
+    if (barangayRiskFilter !== 'all') {
+      list = list.filter(b => b.riskLevel === barangayRiskFilter);
+    }
+    return list;
+  }, [enrichedBarangays, barangayViewMode, barangaySearch, barangayRiskFilter]);
 
   const bg = cmsConfig.interfaceBackground || {
     enabled: true,
@@ -246,24 +371,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   {cmsConfig.heroDescription}
                 </p>
               )}
-
-              {/* Action Buttons */}
-              <div className="pt-3 flex flex-wrap items-center gap-3">
-                <button
-                  onClick={onOpenLogin}
-                  className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-300 hover:from-emerald-300 hover:to-teal-200 text-emerald-950 font-black text-xs sm:text-sm shadow-xl hover:shadow-2xl transition transform hover:-translate-y-0.5 flex items-center gap-2 cursor-pointer border border-emerald-200"
-                >
-                  <LogIn className="w-4 h-4 text-emerald-950" />
-                  <span>{cmsConfig.primaryButtonText || 'Sign In / Portal Login'}</span>
-                </button>
-              </div>
             </div>
           </div>
         </section>
 
         {/* Statistics Section */}
         {((cmsConfig.stats && cmsConfig.stats.some(s => s.visible)) || cmsConfig.statsEnabled !== false) && (
-          <section className="max-w-7xl mx-auto px-4 sm:px-6">
+          <section id="barangays" className="max-w-7xl mx-auto px-4 sm:px-6">
             {(cmsConfig.statsTitle || cmsConfig.statsSubtitle) && (
               <div className="text-center max-w-xl mx-auto mb-6">
                 {cmsConfig.statsTitle && (
@@ -358,6 +472,189 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </>
               )}
             </div>
+
+            {/* 15 Barangays & Biosecurity Directory Showcase */}
+            <div className="mt-10 pt-10 border-t border-stone-200/70 space-y-6">
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100/90 text-emerald-800 text-xs font-bold mb-2">
+                    <MapPin className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Municipal Geographic Jurisdiction</span>
+                  </div>
+                  <h3
+                    className="text-2xl sm:text-3xl font-black tracking-tight"
+                    style={{
+                      fontFamily: theme.headingFont || 'system-ui',
+                      color: theme.headingColor || '#064e3b',
+                    }}
+                  >
+                    15 Barangays of Hinunangan • Biosecurity & Swine Status
+                  </h3>
+                  <p className="text-xs sm:text-sm text-stone-600 mt-1 max-w-2xl leading-relaxed">
+                    Live biosecurity zoning, active swine population, and designated agricultural focal officers across Hinunangan, Southern Leyte.
+                  </p>
+                </div>
+
+                {/* View Mode Toggle: Top 15 vs All 40 */}
+                <div className="flex items-center gap-1.5 p-1 bg-stone-200/70 rounded-xl shrink-0 self-start md:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setBarangayViewMode('top15')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      barangayViewMode === 'top15'
+                        ? 'bg-emerald-800 text-white shadow-xs'
+                        : 'text-stone-700 hover:text-emerald-800'
+                    }`}
+                  >
+                    Top 15 Barangays ({top15BarangayNames.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBarangayViewMode('all')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      barangayViewMode === 'all'
+                        ? 'bg-emerald-800 text-white shadow-xs'
+                        : 'text-stone-700 hover:text-emerald-800'
+                    }`}
+                  >
+                    All 40 Barangays ({enrichedBarangays.length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Filters Toolbar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 bg-white/90 backdrop-blur-md rounded-2xl border border-stone-200 shadow-xs">
+                {/* Search Bar */}
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={barangaySearch}
+                    onChange={e => setBarangaySearch(e.target.value)}
+                    placeholder="Search barangay by name, code, or focal person..."
+                    className="w-full pl-9 pr-4 py-2 rounded-xl bg-stone-50 border border-stone-200 text-xs text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white transition"
+                  />
+                  {barangaySearch && (
+                    <button
+                      onClick={() => setBarangaySearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 p-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Risk Filter Chips */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                  <span className="text-[11px] font-bold text-stone-500 whitespace-nowrap pl-1">Zone:</span>
+                  {[
+                    { id: 'all', label: 'All Zones' },
+                    { id: 'green', label: '🟢 Green (Free)' },
+                    { id: 'yellow', label: '🟡 Yellow (Buffer)' },
+                    { id: 'red', label: '🔴 Red (Surveillance)' },
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setBarangayRiskFilter(tab.id as any)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition cursor-pointer ${
+                        barangayRiskFilter === tab.id
+                          ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-2xs'
+                          : 'bg-stone-100 hover:bg-stone-200 text-stone-600 border border-transparent'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Barangay Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
+                {displayedBarangays.map(bg => {
+                  const isGreen = bg.riskLevel === 'green';
+                  const isYellow = bg.riskLevel === 'yellow';
+
+                  return (
+                    <div
+                      key={bg.id}
+                      onClick={() => setSelectedBarangayDetail(bg)}
+                      className="bg-white/95 backdrop-blur-md rounded-2xl p-4 border border-stone-200 shadow-xs hover:border-emerald-400 hover:shadow-md transition cursor-pointer flex flex-col justify-between group"
+                    >
+                      <div className="space-y-2.5">
+                        {/* Top: Name & Risk Badge */}
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div>
+                            <h4 className="font-black text-sm text-stone-900 group-hover:text-emerald-800 transition leading-snug">
+                              {bg.name}
+                            </h4>
+                            <span className="text-[10px] font-mono font-bold text-stone-400">
+                              [{bg.code}] {bg.isUrban ? '• Urban' : '• Rural'}
+                            </span>
+                          </div>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold tracking-wide uppercase whitespace-nowrap shrink-0 border ${
+                              isGreen
+                                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                : isYellow
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : 'bg-red-100 text-red-900 border-red-300'
+                            }`}
+                          >
+                            {isGreen ? 'Green Zone' : isYellow ? 'Yellow Zone' : 'Red Zone'}
+                          </span>
+                        </div>
+
+                        {/* Swine & Ready Metrics */}
+                        <div className="grid grid-cols-2 gap-1.5 py-1.5 px-2 bg-stone-50 rounded-xl text-center border border-stone-100">
+                          <div>
+                            <span className="text-[10px] text-stone-500 font-semibold block">Swine Heads</span>
+                            <span className="text-xs font-black text-emerald-950 block">{bg.swineCount}</span>
+                          </div>
+                          <div className="border-l border-stone-200 pl-1">
+                            <span className="text-[10px] text-amber-800 font-semibold block">Ready to Sell</span>
+                            <span className="text-xs font-black text-amber-900 block">{bg.readyToSellCount}</span>
+                          </div>
+                        </div>
+
+                        {/* Focal Person Contact */}
+                        <div className="text-[11px] text-stone-600 space-y-0.5 pt-0.5">
+                          <div className="font-semibold text-stone-800 truncate" title={bg.focalPersonName}>
+                            👤 {bg.focalPersonName}
+                          </div>
+                          <div className="text-stone-500 flex items-center gap-1">
+                            <Phone className="w-3 h-3 text-emerald-700" />
+                            <span>{bg.contactNumber}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Footer Details Link */}
+                      <div className="pt-3 mt-3 border-t border-stone-100 flex items-center justify-between text-[11px] font-bold text-emerald-800">
+                        <span>Biosecurity details</span>
+                        <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {displayedBarangays.length === 0 && (
+                <div className="p-8 text-center bg-white/80 rounded-2xl border border-stone-200 space-y-2">
+                  <MapPin className="w-8 h-8 text-stone-300 mx-auto" />
+                  <p className="text-xs font-bold text-stone-600">No barangays matching your search filter.</p>
+                  <button
+                    onClick={() => {
+                      setBarangaySearch('');
+                      setBarangayRiskFilter('all');
+                    }}
+                    className="text-xs text-emerald-800 font-bold hover:underline"
+                  >
+                    Reset search filters
+                  </button>
+                </div>
+              )}
+            </div>
           </section>
         )}
 
@@ -409,10 +706,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </section>
 
-        {/* Features & Modules Section */}
+        {/* Programs & Agricultural Services Section */}
         {((cmsConfig.showFeaturesSection ?? cmsConfig.featuresVisible ?? true) !== false) && (
-          <section id="features" className="max-w-7xl mx-auto px-4 sm:px-6">
+          <section id="programs" className="max-w-7xl mx-auto px-4 sm:px-6 scroll-mt-24">
+            <span id="features" className="sr-only" />
             <div className="text-center max-w-xl mx-auto mb-8">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold mb-2">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Agricultural Extension & Animal Health</span>
+              </div>
               <h2
                 className="text-2xl sm:text-3xl font-black tracking-tight"
                 style={{
@@ -420,13 +722,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   color: theme.headingColor || '#064e3b',
                 }}
               >
-                {cmsConfig.featuresTitle}
+                {cmsConfig.featuresTitle || 'Municipal Programs & Agricultural Services'}
               </h2>
-              <p className="text-xs text-stone-500 mt-1.5">{cmsConfig.featuresSubtitle}</p>
+              <p className="text-xs text-stone-500 mt-1.5">
+                {cmsConfig.featuresSubtitle || 'Comprehensive veterinary assistance, biosecurity subsidies, farm georeferencing, and direct market facilitation.'}
+              </p>
               {cmsConfig.featuresButtonVisible && cmsConfig.featuresButtonText && (
                 <div className="mt-4 flex justify-center">
                   <a
-                    href={cmsConfig.featuresButtonLink || '#features'}
+                    href={cmsConfig.featuresButtonLink || '#programs'}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs shadow-sm transition hover:shadow-md"
                   >
                     <span>{cmsConfig.featuresButtonText}</span>
@@ -438,7 +742,68 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {((cmsConfig.featureCards && cmsConfig.featureCards.length > 0)
                 ? cmsConfig.featureCards.filter(f => f.visible !== false)
-                : ((cmsConfig as any).features || [])
+                : [
+                    {
+                      id: 'prog-asf-biosecurity',
+                      title: 'African Swine Fever (ASF) Biosecurity & Disinfection Protocols',
+                      description:
+                        'Mandatory bio-exclusion gatekeeping, livestock vehicle wheel-baths, footbath solutions, and on-site chemical spraying assistance for all registered backyard and commercial pens.',
+                      icon: 'ShieldCheck',
+                      tag: 'Biosecurity First',
+                      buttonText: 'View Biosecurity Standards',
+                      buttonLink: '#ordinances',
+                    },
+                    {
+                      id: 'prog-rsbsa-gis',
+                      title: 'RSBSA Swine Farm Registration & GIS Georeferencing',
+                      description:
+                        'Spatial indexing of all swine pens under the Registry System for Basic Sectors in Agriculture (RSBSA) with georeferenced coordinates to monitor herd density and zone status.',
+                      icon: 'MapPin',
+                      tag: 'Spatial Mapping',
+                      buttonText: 'Explore GIS Map',
+                      buttonLink: '#biosecurity-map',
+                    },
+                    {
+                      id: 'prog-breeding-ai',
+                      title: 'High-Yield Breeding & AI Extension Support',
+                      description:
+                        'Provision of superior genetics semen straws, artificial insemination training, and reproductive health monitoring to increase litter sizes and disease resistance.',
+                      icon: 'Sparkles',
+                      tag: 'Veterinary Support',
+                      buttonText: 'Contact Livestock Officer',
+                      buttonLink: '#contact',
+                    },
+                    {
+                      id: 'prog-market-takeoff',
+                      title: 'Market-Ready Takeoff Catalog & Direct Agent Linking',
+                      description:
+                        'Transparent live-weight municipal takeoff catalog linking local backyard raisers directly with verified municipal meat traders and agents at prevailing market price benchmarks.',
+                      icon: 'ShoppingBag',
+                      tag: 'Fair Market Access',
+                      buttonText: 'Check Market Catalog',
+                      buttonLink: '#barangays',
+                    },
+                    {
+                      id: 'prog-vet-clearance',
+                      title: 'Veterinary Inspection & Transport Clearance',
+                      description:
+                        'Rapid issuance of Shipping Permits, Veterinary Health Certificates (VHC), and African Swine Fever negative laboratory test certifications for inter-municipality movement.',
+                      icon: 'CheckCircle',
+                      tag: 'Regulatory Compliance',
+                      buttonText: 'Permit Guidelines',
+                      buttonLink: '#ordinances',
+                    },
+                    {
+                      id: 'prog-odorless-pens',
+                      title: 'Odorless Pigpen ("Baboyang Walang Amoy") & Waste Lagoons',
+                      description:
+                        'Technical guidelines and bio-enzyme starter cultures for deep-litter bedding, biogas digesters, and septic containment to eliminate community odor and waterway runoff.',
+                      icon: 'Activity',
+                      tag: 'Clean Agriculture',
+                      buttonText: 'Setback Regulations',
+                      buttonLink: '#ordinances',
+                    },
+                  ]
               ).map((feature: any) => (
                 <div
                   key={feature.id}
@@ -448,6 +813,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center justify-center font-bold">
                       <ShieldCheck className="w-5 h-5 text-emerald-700" />
                     </div>
+                    {feature.tag && (
+                      <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-stone-100 text-stone-600 uppercase">
+                        {feature.tag}
+                      </span>
+                    )}
                     <h3 className="font-black text-sm text-stone-900 group-hover:text-emerald-800 transition">
                       {feature.title}
                     </h3>
@@ -509,6 +879,273 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   )}
                 </div>
               ))}
+          </section>
+        )}
+
+        {/* Biosecurity & ASF GIS Surveillance Section */}
+        <section id="biosecurity-map" className="max-w-7xl mx-auto px-4 sm:px-6 scroll-mt-24">
+          <div className="bg-gradient-to-br from-emerald-950 via-teal-950 to-stone-900 text-white rounded-3xl p-8 sm:p-12 border border-emerald-800 shadow-2xl space-y-8">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-800/80 text-emerald-300 text-xs font-bold border border-emerald-700/60">
+                  <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Real-time Disease Surveillance & Quarantine GIS</span>
+                </div>
+                <h2
+                  className="text-2xl sm:text-4xl font-black tracking-tight"
+                  style={{ fontFamily: theme.headingFont || 'system-ui' }}
+                >
+                  Hinunangan Biosecurity & Disease Surveillance GIS
+                </h2>
+                <p className="text-xs sm:text-sm text-emerald-100/80 max-w-2xl leading-relaxed">
+                  Continuous multi-tier spatial monitoring safeguarding Hinunangan's swine raisers against African Swine Fever through digital geofencing, mobile checkpoints, and rapid veterinary dispatch.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onOpenLogin}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-300 hover:from-emerald-300 hover:to-teal-200 text-emerald-950 font-bold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <MapPin className="w-3.5 h-3.5 text-emerald-950" />
+                  <span>Access Interactive GIS Portal</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 4 Real-time Biosecurity Indicators */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 space-y-1">
+                <div className="flex items-center justify-between text-xs text-emerald-300 font-semibold">
+                  <span>Municipal Zone Status</span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-white">Green Zone</div>
+                <div className="text-[11px] text-emerald-100/70">100% Free / Protected Zone</div>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 space-y-1">
+                <div className="flex items-center justify-between text-xs text-emerald-300 font-semibold">
+                  <span>Active Outbreaks</span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-emerald-300">0 Reported</div>
+                <div className="text-[11px] text-emerald-100/70">Zero mortality cluster incidents</div>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 space-y-1">
+                <div className="flex items-center justify-between text-xs text-emerald-300 font-semibold">
+                  <span>RSBSA Georeferencing</span>
+                  <Layers className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-white">40 / 40</div>
+                <div className="text-[11px] text-emerald-100/70">Barangays indexed on GIS</div>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 space-y-1">
+                <div className="flex items-center justify-between text-xs text-emerald-300 font-semibold">
+                  <span>Quarantine Checkpoints</span>
+                  <Activity className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-white">3 Stations</div>
+                <div className="text-[11px] text-emerald-100/70">24/7 boundary wheel disinfection</div>
+              </div>
+            </div>
+
+            {/* 3-Tier Zoning Guide Info */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+              <div className="p-4 rounded-2xl bg-emerald-900/40 border border-emerald-700/50 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-emerald-400" />
+                  <span className="font-bold text-xs text-white">Green Zone (Free / Protected)</span>
+                </div>
+                <p className="text-[11px] text-emerald-100/70 leading-relaxed">
+                  Regular swine movement permitted with standard Barangay Clearance and Veterinary Health Certificate (VHC).
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-700/50 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-amber-400" />
+                  <span className="font-bold text-xs text-white">Yellow Zone (Buffer / Surveillance)</span>
+                </div>
+                <p className="text-[11px] text-emerald-100/70 leading-relaxed">
+                  Heightened border disinfection and blood sampling. Swine transport strictly regulated by Municipal Livestock Task Force.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-red-950/40 border border-red-700/50 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-red-400" />
+                  <span className="font-bold text-xs text-white">Red Zone (Infected / Quarantine)</span>
+                </div>
+                <p className="text-[11px] text-emerald-100/70 leading-relaxed">
+                  Total freeze on all live swine and pork movement within 1km–7km containment radius. (None currently in Hinunangan).
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Legal Decrees & Ordinances Section */}
+        {legalLandingConfig.showLegalDocuments !== false && (
+          <section id="ordinances" className="max-w-7xl mx-auto px-4 sm:px-6 scroll-mt-24 space-y-8">
+            <div className="text-center max-w-2xl mx-auto mb-4">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold mb-2">
+                <Scale className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Official Statutory Framework</span>
+              </div>
+              <h2
+                className="text-2xl sm:text-4xl font-black tracking-tight"
+                style={{
+                  fontFamily: theme.headingFont || 'system-ui',
+                  color: theme.headingColor || '#064e3b',
+                }}
+              >
+                {legalLandingConfig.sectionTitle || 'Legal Decrees & Ordinances'}
+              </h2>
+              <p className="text-xs sm:text-sm text-stone-600 mt-2 leading-relaxed">
+                {legalLandingConfig.sectionSubtitle ||
+                  'Enacted municipal legislation governing livestock zoning, environmental buffers, bio-exclusion protocols, and raiser rights across Hinunangan, Southern Leyte.'}
+              </p>
+            </div>
+
+            {/* Statutory Locational Setback Standards Banner */}
+            <div className="bg-gradient-to-r from-emerald-900 to-teal-900 text-white rounded-3xl p-6 sm:p-8 shadow-lg border border-emerald-800 space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <span className="text-xs font-bold text-amber-300 uppercase tracking-wider block">
+                    Mandatory Locational Guidelines • Municipal Ordinance No. 2025-59
+                  </span>
+                  <h3 className="text-lg sm:text-xl font-black text-white mt-0.5">
+                    Official Buffer Zones & Environmental Setbacks
+                  </h3>
+                </div>
+                <span className="px-3 py-1 rounded-full bg-white/10 text-white text-xs font-semibold border border-white/20">
+                  Enforced by Municipal Livestock Task Force (MLTF)
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 text-center">
+                  <span className="text-2xl sm:text-3xl font-black text-amber-300 block">50m</span>
+                  <span className="text-xs font-bold text-white block mt-0.5">Backyard Piggery</span>
+                  <span className="text-[10px] text-emerald-200 block">Setback from residential houses</span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 text-center">
+                  <span className="text-2xl sm:text-3xl font-black text-amber-300 block">100m</span>
+                  <span className="text-xs font-bold text-white block mt-0.5">Commercial Piggery</span>
+                  <span className="text-[10px] text-emerald-200 block">Setback from built-up zones & resorts</span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 text-center">
+                  <span className="text-2xl sm:text-3xl font-black text-amber-300 block">25m</span>
+                  <span className="text-xs font-bold text-white block mt-0.5">Water Bodies</span>
+                  <span className="text-[10px] text-emerald-200 block">Setback from rivers, creeks & wells</span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 text-center">
+                  <span className="text-2xl sm:text-3xl font-black text-amber-300 block">₱2,500</span>
+                  <span className="text-xs font-bold text-white block mt-0.5">Penal Fines</span>
+                  <span className="text-[10px] text-emerald-200 block">+ Immediate pen closure on 3rd offense</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Optional Citizen Legal Document Search Bar */}
+            {legalLandingConfig.showSearch !== false && (
+              <div className="max-w-md mx-auto relative">
+                <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={legalDocSearch}
+                  onChange={e => setLegalDocSearch(e.target.value)}
+                  placeholder="Search ordinances, resolutions, or decrees..."
+                  className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white border border-stone-200 shadow-2xs text-xs font-semibold text-stone-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-600"
+                />
+                {legalDocSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setLegalDocSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 text-xs font-bold"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Ordinances Cards Grid */}
+            {displayedLegalDocuments.length === 0 ? (
+              <div className="text-center py-12 bg-white rounded-2xl border border-stone-200 shadow-2xs text-stone-500 text-xs">
+                <FileText className="w-8 h-8 text-stone-300 mx-auto mb-2" />
+                <p className="font-bold">No matching legal decrees or ordinances found.</p>
+                {legalDocSearch && <p className="text-[11px] text-stone-400 mt-1">Try searching with a different number or keyword.</p>}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {displayedLegalDocuments.map((doc, docIdx) => (
+                  <div
+                    key={`landing-ord-${doc.id || docIdx}-${docIdx}`}
+                    className="bg-white/95 backdrop-blur-md rounded-2xl p-6 border border-stone-200 shadow-xs hover:border-emerald-400 hover:shadow-md transition flex flex-col justify-between space-y-4 group"
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        {legalLandingConfig.showCategory !== false && (
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            {doc.category === 'ordinance' || doc.type === 'municipal_ordinance'
+                              ? 'Municipal Ordinance'
+                              : doc.category === 'resolution'
+                              ? 'SB Resolution'
+                              : (doc.category || doc.type).replace('_', ' ')}
+                          </span>
+                        )}
+                        {legalLandingConfig.showDate !== false && doc.dateEnacted && (
+                          <span className="text-[11px] font-bold text-stone-400">{doc.dateEnacted}</span>
+                        )}
+                      </div>
+
+                      <div>
+                        {legalLandingConfig.showDocumentNumber !== false && (
+                          <h3 className="font-black text-sm text-stone-900 group-hover:text-emerald-800 transition line-clamp-2">
+                            {doc.officialNumber}
+                          </h3>
+                        )}
+                        {legalLandingConfig.showTitle !== false && (
+                          <p className="text-xs font-semibold text-emerald-900/80 mt-0.5">{doc.knownAs || doc.title}</p>
+                        )}
+                      </div>
+
+                      <p className="text-xs text-stone-600 leading-relaxed line-clamp-4">
+                        {doc.shortSummary || doc.description}
+                      </p>
+
+                      {doc.author && (
+                        <div className="text-[11px] text-stone-500 pt-1 border-t border-stone-100 flex items-center justify-between">
+                          <span>Author: {doc.author}</span>
+                          <span className="font-bold text-emerald-700">{doc.status.toUpperCase()}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {legalLandingConfig.showViewButton !== false && (
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrdinance(doc)}
+                          className="w-full py-2.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-900 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        >
+                          <BookOpen className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>Read Statutory Provisions & Articles</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -891,6 +1528,286 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <span>Open in YouTube</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Barangay Detail Modal */}
+      {selectedBarangayDetail && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full border border-stone-200 shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="p-6 bg-gradient-to-r from-emerald-900 to-teal-900 text-white flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-white/20 uppercase">
+                    Code: {selectedBarangayDetail.code}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                      selectedBarangayDetail.riskLevel === 'green'
+                        ? 'bg-emerald-400 text-emerald-950'
+                        : selectedBarangayDetail.riskLevel === 'yellow'
+                        ? 'bg-amber-400 text-amber-950'
+                        : 'bg-red-400 text-red-950'
+                    }`}
+                  >
+                    {selectedBarangayDetail.riskLevel === 'green'
+                      ? 'Green Zone (Free)'
+                      : selectedBarangayDetail.riskLevel === 'yellow'
+                      ? 'Yellow Zone (Buffer)'
+                      : 'Red Zone (Surveillance)'}
+                  </span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black mt-1.5 text-white">
+                  Barangay {selectedBarangayDetail.name}
+                </h3>
+                <p className="text-xs text-emerald-100/80">
+                  Hinunangan, Southern Leyte • {selectedBarangayDetail.isUrban ? 'Urban Zone' : 'Rural Agricultural Zone'}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedBarangayDetail(null)}
+                className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white cursor-pointer transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto text-xs text-stone-700">
+              {/* Swine Population Metrics */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 text-center">
+                  <span className="text-[11px] font-bold text-stone-500 uppercase block">Active Swine Population</span>
+                  <span className="text-2xl sm:text-3xl font-black text-emerald-950 block mt-0.5">
+                    {selectedBarangayDetail.swineCount}
+                  </span>
+                  <span className="text-[10px] text-stone-400">Heads tagged in RSBSA</span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 text-center">
+                  <span className="text-[11px] font-bold text-amber-800 uppercase block">Ready for Market</span>
+                  <span className="text-2xl sm:text-3xl font-black text-amber-900 block mt-0.5">
+                    {selectedBarangayDetail.readyToSellCount}
+                  </span>
+                  <span className="text-[10px] text-amber-700/80">Market-ready liveweight</span>
+                </div>
+              </div>
+
+              {/* Designated Focal Person */}
+              <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-2">
+                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+                  Designated Barangay Agricultural Focal Person
+                </span>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-black text-sm text-stone-900">{selectedBarangayDetail.focalPersonName}</h4>
+                    <span className="text-[11px] text-stone-500">Barangay Livestock Extension Officer</span>
+                  </div>
+                  <a
+                    href={`tel:${selectedBarangayDetail.contactNumber}`}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs transition"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>{selectedBarangayDetail.contactNumber}</span>
+                  </a>
+                </div>
+              </div>
+
+              {/* Biosecurity Checklist */}
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold text-stone-900 uppercase tracking-wider block">
+                  Barangay Biosecurity & Compliance Status
+                </span>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 border border-stone-200">
+                    <span className="font-semibold text-stone-700">Geographic Spatial Mapping</span>
+                    <span className="font-mono text-[11px] text-emerald-800 font-bold">
+                      {selectedBarangayDetail.latitude.toFixed(4)}°N, {selectedBarangayDetail.longitude.toFixed(4)}°E
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 border border-stone-200">
+                    <span className="font-semibold text-stone-700">ASF Quarantine Inspection</span>
+                    <span className="text-emerald-700 font-bold flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Cleared & Monitored
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 border border-stone-200">
+                    <span className="font-semibold text-stone-700">Livestock Movement Permitting</span>
+                    <span className="text-stone-700 font-semibold">VHC & Barangay Permit Required</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-stone-50 border-t border-stone-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedBarangayDetail(null)}
+                className="px-5 py-2 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold text-xs transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ordinance Statutory Detail Modal */}
+      {selectedOrdinance && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full border border-stone-200 shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="p-6 bg-gradient-to-r from-emerald-950 via-teal-950 to-stone-900 text-white flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-400 text-emerald-950">
+                    {selectedOrdinance.type.replace('_', ' ')}
+                  </span>
+                  <span className="text-[11px] text-emerald-300 font-semibold">
+                    Enacted: {selectedOrdinance.dateEnacted}
+                  </span>
+                </div>
+                <h3 className="text-lg sm:text-xl font-black text-white leading-snug">
+                  {selectedOrdinance.officialNumber}
+                </h3>
+                <p className="text-xs text-emerald-200 font-medium">{selectedOrdinance.knownAs}</p>
+                {selectedOrdinance.author && (
+                  <p className="text-[11px] text-stone-300">Author / Sponsor: {selectedOrdinance.author}</p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedOrdinance(null)}
+                className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white cursor-pointer transition shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto text-xs text-stone-700">
+              {/* Summary */}
+              <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-1">
+                <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider block">
+                  Official Legislative Summary
+                </span>
+                <p className="text-xs text-stone-700 leading-relaxed">
+                  {selectedOrdinance.description || selectedOrdinance.shortSummary}
+                </p>
+              </div>
+
+              {/* Setbacks & Spatial Buffer Rules if present */}
+              {selectedOrdinance.mandatorySetbacks && (
+                <div className="space-y-2">
+                  <span className="text-[11px] font-bold text-stone-900 uppercase tracking-wider block">
+                    Statutory Setback Distances & Spatial Buffers
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
+                      <span className="text-base font-black text-emerald-900 block">
+                        {selectedOrdinance.mandatorySetbacks.backyardDistanceMeters}m
+                      </span>
+                      <span className="text-[10px] text-emerald-700 font-bold block">Backyard Pen</span>
+                      <span className="text-[9px] text-stone-500">From houses</span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
+                      <span className="text-base font-black text-emerald-900 block">
+                        {selectedOrdinance.mandatorySetbacks.commercialDistanceMeters}m
+                      </span>
+                      <span className="text-[10px] text-emerald-700 font-bold block">Commercial Pen</span>
+                      <span className="text-[9px] text-stone-500">From built-up area</span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
+                      <span className="text-base font-black text-emerald-900 block">
+                        {selectedOrdinance.mandatorySetbacks.waterResourceDistanceMeters}m
+                      </span>
+                      <span className="text-[10px] text-emerald-700 font-bold block">Water Bodies</span>
+                      <span className="text-[9px] text-stone-500">From rivers/wells</span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
+                      <span className="text-base font-black text-emerald-900 block">
+                        {selectedOrdinance.mandatorySetbacks.highwayDistanceMeters}m
+                      </span>
+                      <span className="text-[10px] text-emerald-700 font-bold block">Road Setback</span>
+                      <span className="text-[9px] text-stone-500">From public road</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Key Articles */}
+              {selectedOrdinance.keyArticles && selectedOrdinance.keyArticles.length > 0 && (
+                <div className="space-y-2.5">
+                  <span className="text-[11px] font-bold text-stone-900 uppercase tracking-wider block">
+                    Key Articles & Operative Provisions
+                  </span>
+                  <div className="space-y-2">
+                    {selectedOrdinance.keyArticles.map((art, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200 space-y-1"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-stone-900 text-xs">
+                            {art.articleNumber ? `Article ${art.articleNumber}: ` : ''}
+                            {art.title}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase ${
+                              art.mandateCategory === 'mandatory'
+                                ? 'bg-red-100 text-red-800'
+                                : art.mandateCategory === 'prohibitive'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {art.mandateCategory}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-stone-600 leading-relaxed">{art.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Statutory Penalties */}
+              {selectedOrdinance.statutoryPenalties && selectedOrdinance.statutoryPenalties.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-[11px] font-bold text-stone-900 uppercase tracking-wider block">
+                    Statutory Penalties & Enforcement Escalation
+                  </span>
+                  <div className="space-y-1.5">
+                    {selectedOrdinance.statutoryPenalties.map((pen, idx) => (
+                      <div
+                        key={idx}
+                        className="p-2.5 rounded-xl bg-red-50/50 border border-red-200 flex items-center justify-between text-[11px]"
+                      >
+                        <span className="font-bold text-red-950 uppercase">{pen.offense}</span>
+                        <span className="font-black text-red-800">{pen.fineText}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-stone-50 border-t border-stone-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedOrdinance(null)}
+                className="px-5 py-2 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold text-xs transition cursor-pointer"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

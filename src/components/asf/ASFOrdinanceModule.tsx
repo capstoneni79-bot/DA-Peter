@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   FileText,
   Shield,
@@ -9,28 +9,39 @@ import {
   Scale,
   Printer,
   Search,
-  ExternalLink,
   ChevronRight,
   BookOpen,
   Info,
-  Layers,
   Building,
-  Droplets,
-  School,
-  Home,
-  Ban,
-  Car,
-  PhoneCall,
   Plus,
   Pencil,
   Trash2,
-  Save,
   RotateCcw,
-  X,
+  Archive,
+  RefreshCw,
+  Eye,
+  ScrollText,
+  ShieldAlert,
+  Paperclip,
+  History,
+  Trees,
+  SlidersHorizontal,
+  Compass,
   Check,
+  Download,
+  Upload,
+  Sparkles,
 } from 'lucide-react';
 import { storageService } from '../../services/storageService';
 import { ASFRegulatoryDocument, Barangay, UserAccount } from '../../types';
+import { LegalDocumentComboBox } from './LegalDocumentComboBox';
+import { LegalLocationalTable } from './LegalLocationalTable';
+import { LegalDocumentPrintView } from './LegalDocumentPrintView';
+import { LegalComplianceCalculator } from './LegalComplianceCalculator';
+import { LegalDocumentEditModal } from './LegalDocumentEditModal';
+import { LegalSmartImportModal } from './LegalSmartImportModal';
+import { LegalImportHistoryModal } from './LegalImportHistoryModal';
+import { LegalDocumentOriginalViewerModal } from './LegalDocumentOriginalViewerModal';
 
 interface ASFOrdinanceModuleProps {
   barangays?: Barangay[];
@@ -47,1291 +58,1023 @@ export const ASFOrdinanceModule: React.FC<ASFOrdinanceModuleProps> = ({
     storageService.getAsfRegulations()
   );
   const [selectedDocId, setSelectedDocId] = useState<string>(
-    regulations[0]?.id || 'eo-hinunangan-12-2023'
+    regulations[0]?.id || 'mo-hinunangan-2025-59'
   );
-  const [activeTabMode, setActiveTabMode] = useState<'document' | 'audit'>('document');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'ordinance' | 'resolution' | 'national_reference' | 'archived'>('all');
+  const [activeDocTab, setActiveDocTab] = useState<
+    'articles' | 'locational_standards' | 'task_force' | 'penalties' | 'compliance_checker' | 'attachments' | 'history'
+  >('articles');
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
-  // Modals state for admin
-  const [isEditDocModalOpen, setIsEditDocModalOpen] = useState(false);
-  const [isAddDocModalOpen, setIsAddDocModalOpen] = useState(false);
-  const [isArticleModalOpen, setIsArticleModalOpen] = useState(false);
-  const [editingArticleIndex, setEditingArticleIndex] = useState<number | null>(null);
-
-  // Edit Doc Form State
-  const [editDocForm, setEditDocForm] = useState<Partial<ASFRegulatoryDocument>>({});
-
-  // Article Form State
-  const [articleForm, setArticleForm] = useState<{
-    number: string;
-    heading: string;
-    text: string;
-    mandateCategory: 'mandatory' | 'prohibitive' | 'advisory';
-  }>({
-    number: '',
-    heading: '',
-    text: '',
-    mandateCategory: 'mandatory',
-  });
-
-  // Self-audit state for raisers & officers
-  const [auditWaterDist, setAuditWaterDist] = useState<number>(35);
-  const [auditBuiltUpDist, setAuditBuiltUpDist] = useState<number>(65);
-  const [auditSchoolDist, setAuditSchoolDist] = useState<number>(250);
-  const [auditNoSwill, setAuditNoSwill] = useState<boolean>(true);
-  const [auditFootbath, setAuditFootbath] = useState<boolean>(true);
-  const [auditFence, setAuditFence] = useState<boolean>(true);
-  const [auditEarTag, setAuditEarTag] = useState<boolean>(true);
-  const [auditVHC, setAuditVHC] = useState<boolean>(true);
+  // Modals
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [docToEdit, setDocToEdit] = useState<ASFRegulatoryDocument | null>(null);
+  const [isPrintViewOpen, setIsPrintViewOpen] = useState(false);
+  const [deleteConfirmDoc, setDeleteConfirmDoc] = useState<ASFRegulatoryDocument | null>(null);
+  const [isSmartImportOpen, setIsSmartImportOpen] = useState(false);
+  const [isImportHistoryOpen, setIsImportHistoryOpen] = useState(false);
+  const [isOriginalViewerOpen, setIsOriginalViewerOpen] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
-
-  // Currently selected document
-  const selectedDoc = regulations.find(r => r.id === selectedDocId) || regulations[0];
 
   const showToast = (msg: string) => {
     setSuccessToast(msg);
     setTimeout(() => setSuccessToast(null), 3500);
   };
 
-  // Filter articles by search term
-  const filteredArticles = selectedDoc
-    ? selectedDoc.keyArticles.filter(
-        art =>
-          art.number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          art.heading.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          art.text.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    : [];
+  // Filtered documents list by category
+  const filteredDocs = useMemo(() => {
+    return regulations.filter(doc => {
+      if (categoryFilter === 'archived') {
+        return doc.status === 'archived' || doc.isArchived;
+      }
+      if (doc.status === 'archived' || doc.isArchived) {
+        return false;
+      }
+      if (categoryFilter === 'ordinance') {
+        return doc.category === 'ordinance' || doc.type.includes('ordinance');
+      }
+      if (categoryFilter === 'resolution') {
+        return doc.category === 'resolution' || doc.type.includes('resolution');
+      }
+      if (categoryFilter === 'national_reference') {
+        return doc.category === 'national_reference' || doc.type.includes('administrative_order') || doc.type.includes('reference');
+      }
+      return true;
+    });
+  }, [regulations, categoryFilter]);
 
-  // Calculate audit results
-  const isWaterCompliant = auditWaterDist > 25;
-  const isBuiltUpCompliant = auditBuiltUpDist > 50;
-  const isSchoolCompliant = auditSchoolDist > 200;
-  const setbackScore = (isWaterCompliant ? 1 : 0) + (isBuiltUpCompliant ? 1 : 0) + (isSchoolCompliant ? 1 : 0);
-  const biosecurityScore =
-    (auditNoSwill ? 2 : 0) +
-    (auditFootbath ? 1 : 0) +
-    (auditFence ? 1 : 0) +
-    (auditEarTag ? 1 : 0) +
-    (auditVHC ? 1 : 0);
-  const totalScore = setbackScore + biosecurityScore; // max 8 points (3 setback + 5 biosecurity)
-  const isFullyCompliant = setbackScore === 3 && auditNoSwill && auditEarTag && auditVHC;
+  // Ensure valid selected document
+  const selectedDoc = useMemo(() => {
+    return (
+      regulations.find(r => r.id === selectedDocId) ||
+      filteredDocs[0] ||
+      regulations[0]
+    );
+  }, [regulations, selectedDocId, filteredDocs]);
 
-  const handlePrint = () => {
-    window.print();
+  // Filtered articles/sections within selected document
+  const filteredArticles = useMemo(() => {
+    if (!selectedDoc) return [];
+    if (!searchTerm.trim()) {
+      return selectedDoc.articles || [];
+    }
+    const q = searchTerm.toLowerCase();
+    return (selectedDoc.articles || [])
+      .map(art => ({
+        ...art,
+        sections: art.sections.filter(
+          sec =>
+            sec.sectionNumber.toLowerCase().includes(q) ||
+            sec.sectionTitle.toLowerCase().includes(q) ||
+            sec.content.toLowerCase().includes(q) ||
+            art.articleNumber.toLowerCase().includes(q) ||
+            art.articleTitle.toLowerCase().includes(q)
+        ),
+      }))
+      .filter(art => art.sections.length > 0);
+  }, [selectedDoc, searchTerm]);
+
+  // CRUD Handlers
+  const handleCreateNew = () => {
+    setDocToEdit(null);
+    setIsEditModalOpen(true);
   };
 
-  // Admin Handler: Open Edit Document
-  const handleOpenEditDoc = () => {
+  const handleEditCurrent = () => {
     if (!selectedDoc) return;
-    setEditDocForm({
-      ...selectedDoc,
-      keyArticles: [...selectedDoc.keyArticles],
-      setbackRules: [...selectedDoc.setbackRules],
-      penalties: [...selectedDoc.penalties],
-      legalBasis: [...selectedDoc.legalBasis],
-    });
-    setIsEditDocModalOpen(true);
+    setDocToEdit(selectedDoc);
+    setIsEditModalOpen(true);
   };
 
-  // Admin Handler: Save Edited Document
-  const handleSaveEditDoc = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editDocForm.id || !editDocForm.title) return;
-
-    const updatedDoc = editDocForm as ASFRegulatoryDocument;
-    storageService.updateAsfRegulation(updatedDoc);
-    const refreshed = storageService.getAsfRegulations();
-    setRegulations(refreshed);
-    setIsEditDocModalOpen(false);
-    showToast(`Updated ordinance "${updatedDoc.officialNumber}" successfully`);
-  };
-
-  // Admin Handler: Open Add Document Modal
-  const handleOpenAddDoc = () => {
-    setEditDocForm({
-      id: 'doc-' + Date.now(),
-      type: 'municipal_eo',
-      title: '',
-      officialNumber: 'Executive Order No. ' + (regulations.length + 1),
-      seriesYear: `Series of ${new Date().getFullYear()}`,
-      issuingAuthority: 'Office of the Municipal Mayor, Hinunangan, Southern Leyte',
-      signatory: currentUser?.name || 'Hon. Municipal Mayor',
-      signatoryTitle: 'Municipal Mayor & Task Force Head',
-      effectiveDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + ' (Active)',
-      shortSummary: '',
-      legalBasis: ['Republic Act No. 7160 (Local Government Code of 1991)'],
-      keyArticles: [
-        {
-          number: 'Section 1',
-          heading: 'General Mandate & Scope',
-          text: 'Enacting swine movement, setback enforcement, and biosecurity regulations across all 40 barangays of Hinunangan.',
-          mandateCategory: 'mandatory',
-        },
-      ],
-      setbackRules: [
-        {
-          target: 'Potable Water Source / River / Spring',
-          minimumDistance: 25,
-          statutoryBasis: 'Sanitation Code of the Philippines & Municipal Zoning',
-          rationale: 'Mitigate contamination of water supply and community riverways.',
-        },
-        {
-          target: 'Built-up Residential Area / Neighboring Homes',
-          minimumDistance: 50,
-          statutoryBasis: 'Comprehensive Land Use Plan (CLUP)',
-          rationale: 'Prevent odor nuisance and residential pathogen exposure.',
-        },
-        {
-          target: 'Schools, Day Care Centers & Certified Tourism Sites',
-          minimumDistance: 200,
-          statutoryBasis: 'Municipal Ordinance & DepEd Health Safety Protocols',
-          rationale: 'Protect vulnerable student populations and prime tourist zones.',
-        },
-      ],
-      penalties: [
-        { offenseTier: 'First Offense', finePhp: 1000, punitiveActions: 'Written warning and mandatory 48-hour compliance.' },
-        { offenseTier: 'Second Offense', finePhp: 1500, punitiveActions: 'Administrative fine and suspension of shipping permits.' },
-        { offenseTier: 'Third Offense', finePhp: 2500, punitiveActions: 'Full fine, pen closure, and forfeiture of swine.' },
-      ],
-    });
-    setIsAddDocModalOpen(true);
-  };
-
-  // Admin Handler: Save New Document
-  const handleSaveNewDoc = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editDocForm.title || !editDocForm.officialNumber) {
-      alert('Please fill out the Title and Official Number');
-      return;
+  const handleSaveDoc = (doc: ASFRegulatoryDocument, changeSummary?: string) => {
+    if (docToEdit) {
+      storageService.updateAsfRegulation(doc, currentUser?.name || currentUser?.username || 'Admin', changeSummary);
+      showToast(`Updated "${doc.officialNumber}" successfully.`);
+    } else {
+      storageService.addAsfRegulation(doc, currentUser?.name || currentUser?.username || 'Admin');
+      showToast(`Created "${doc.officialNumber}" successfully.`);
+      setSelectedDocId(doc.id);
     }
-
-    const newDoc: ASFRegulatoryDocument = {
-      id: editDocForm.id || 'doc-' + Date.now(),
-      type: editDocForm.type || 'municipal_eo',
-      title: editDocForm.title || '',
-      officialNumber: editDocForm.officialNumber || 'Decree',
-      seriesYear: editDocForm.seriesYear || `Series of ${new Date().getFullYear()}`,
-      issuingAuthority: editDocForm.issuingAuthority || 'Local Government of Hinunangan',
-      signatory: editDocForm.signatory || 'Municipal Mayor',
-      signatoryTitle: editDocForm.signatoryTitle || 'Mayor',
-      effectiveDate: editDocForm.effectiveDate || 'Effective Immediately',
-      shortSummary: editDocForm.shortSummary || editDocForm.title || '',
-      legalBasis: editDocForm.legalBasis || ['Republic Act No. 7160'],
-      keyArticles: editDocForm.keyArticles || [],
-      setbackRules: editDocForm.setbackRules || [],
-      penalties: editDocForm.penalties || [],
-    };
-
-    storageService.addAsfRegulation(newDoc);
-    const refreshed = storageService.getAsfRegulations();
-    setRegulations(refreshed);
-    setSelectedDocId(newDoc.id);
-    setIsAddDocModalOpen(false);
-    showToast(`Added new ordinance "${newDoc.officialNumber}" successfully`);
+    setRegulations(storageService.getAsfRegulations());
   };
 
-  // Admin Handler: Delete Document
-  const handleDeleteDoc = (id: string) => {
-    if (regulations.length <= 1) {
-      alert('You must keep at least one ordinance in the system.');
-      return;
-    }
-    if (confirm('Are you sure you want to delete this ordinance?')) {
-      storageService.deleteAsfRegulation(id);
-      const refreshed = storageService.getAsfRegulations();
-      setRegulations(refreshed);
-      setSelectedDocId(refreshed[0].id);
-      showToast('Ordinance removed from database');
-    }
+  const handleArchiveDoc = (doc: ASFRegulatoryDocument) => {
+    storageService.archiveAsfRegulation(doc.id, currentUser?.name || currentUser?.username || 'Admin');
+    setRegulations(storageService.getAsfRegulations());
+    showToast(`Archived "${doc.officialNumber}". Moved to Archived tab.`);
   };
 
-  // Admin Handler: Reset to Defaults
-  const handleResetDefaults = () => {
-    if (confirm('Reset all ASF ordinances back to original baseline statutes (Hinunangan EO 12-2023 & Provincial Ordinance 2021-018)?')) {
+  const handleRestoreDoc = (doc: ASFRegulatoryDocument) => {
+    storageService.restoreAsfRegulation(doc.id, currentUser?.name || currentUser?.username || 'Admin');
+    setRegulations(storageService.getAsfRegulations());
+    showToast(`Restored "${doc.officialNumber}" to active status.`);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deleteConfirmDoc) return;
+    storageService.deleteAsfRegulation(deleteConfirmDoc.id);
+    const updated = storageService.getAsfRegulations();
+    setRegulations(updated);
+    if (selectedDocId === deleteConfirmDoc.id) {
+      setSelectedDocId(updated[0]?.id || '');
+    }
+    showToast(`Permanently deleted "${deleteConfirmDoc.officialNumber}".`);
+    setDeleteConfirmDoc(null);
+  };
+
+  const handleResetToOfficialSeeds = () => {
+    if (window.confirm('Reset all Legal Decrees to official municipal & provincial enacted versions (MO 2025-59, Res 376-2026, PO 2023-144)?')) {
       const reset = storageService.resetAsfRegulations();
       setRegulations(reset);
-      setSelectedDocId(reset[0].id);
-      showToast('Restored default statutes');
-    }
-  };
-
-  // Admin Handler: Open Article Modal (Add or Edit)
-  const handleOpenAddArticle = () => {
-    setEditingArticleIndex(null);
-    setArticleForm({
-      number: `Section ${selectedDoc.keyArticles.length + 1}`,
-      heading: '',
-      text: '',
-      mandateCategory: 'mandatory',
-    });
-    setIsArticleModalOpen(true);
-  };
-
-  const handleOpenEditArticle = (idx: number) => {
-    const art = selectedDoc.keyArticles[idx];
-    if (!art) return;
-    setEditingArticleIndex(idx);
-    setArticleForm({ ...art });
-    setIsArticleModalOpen(true);
-  };
-
-  const handleSaveArticle = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!articleForm.heading.trim() || !articleForm.text.trim()) {
-      alert('Please provide an article heading and mandate text.');
-      return;
-    }
-
-    const updatedDoc = { ...selectedDoc };
-    const articles = [...updatedDoc.keyArticles];
-
-    if (editingArticleIndex !== null && editingArticleIndex >= 0) {
-      articles[editingArticleIndex] = { ...articleForm };
-    } else {
-      articles.push({ ...articleForm });
-    }
-
-    updatedDoc.keyArticles = articles;
-    storageService.updateAsfRegulation(updatedDoc);
-    setRegulations(storageService.getAsfRegulations());
-    setIsArticleModalOpen(false);
-    showToast(
-      editingArticleIndex !== null ? `Updated article "${articleForm.number}"` : `Added new article "${articleForm.number}"`
-    );
-  };
-
-  const handleDeleteArticle = (idx: number) => {
-    if (confirm('Are you sure you want to delete this article?')) {
-      const updatedDoc = { ...selectedDoc };
-      const articles = [...updatedDoc.keyArticles];
-      articles.splice(idx, 1);
-      updatedDoc.keyArticles = articles;
-      storageService.updateAsfRegulation(updatedDoc);
-      setRegulations(storageService.getAsfRegulations());
-      showToast('Article deleted from ordinance');
+      setSelectedDocId(reset[0]?.id || '');
+      showToast('Successfully restored official statutory documents.');
     }
   };
 
   return (
-    <div className="max-w-7xl mx-auto py-6 px-4 space-y-6">
-      {/* Success Notification Toast */}
+    <div className="space-y-6">
+      {/* Toast notification */}
       {successToast && (
-        <div className="fixed top-5 right-5 z-50 bg-emerald-900 text-white text-xs font-bold px-4 py-3 rounded-2xl shadow-xl border border-emerald-700 flex items-center gap-2 animate-bounce">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+        <div className="fixed top-20 right-6 z-50 bg-emerald-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-2.5 border border-emerald-700 animate-in fade-in slide-in-from-top-4 duration-200 text-xs font-medium">
+          <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
           <span>{successToast}</span>
         </div>
       )}
 
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-emerald-950 via-teal-950 to-stone-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-emerald-800/40 relative overflow-hidden">
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2">
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
-              African Swine Fever (ASF) Legal & Biosecurity Decrees
-            </h1>
-            <p className="text-xs sm:text-sm text-emerald-200/90 max-w-3xl leading-relaxed">
-              Statutory regulations governing swine pen setbacks, absolute swill-feeding prohibitions, transport clearances, and quarantine checkpoint enforcement in the <strong>Municipality of Hinunangan</strong> and the <strong>Province of Southern Leyte</strong>.
+      {/* Page Title & Mission Banner */}
+      <div className="bg-white rounded-2xl p-6 border border-stone-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-emerald-800 text-white rounded-2xl shadow-xs shrink-0">
+            <Scale className="w-7 h-7" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-xl font-bold tracking-tight text-stone-900">
+                Legal Decrees &amp; Ordinances Management
+              </h2>
+              <span className="text-[10px] font-bold bg-emerald-100 text-emerald-900 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                Official Law Registry
+              </span>
+            </div>
+            <p className="text-xs text-stone-500 mt-1 max-w-2xl">
+              Legislative database of enacted Municipal Ordinances, Sangguniang Bayan Resolutions, Bantay ASF Decrees, and locational standards in the Municipality of Hinunangan, Southern Leyte.
             </p>
           </div>
+        </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
-            {isAdmin && (
+        {/* Global Actions */}
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsImportHistoryOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-stone-700 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 rounded-xl transition border border-stone-200"
+            title="View smart import audit trail and logs"
+          >
+            <History className="w-3.5 h-3.5 text-emerald-700" /> Import History
+          </button>
+
+          <button
+            type="button"
+            onClick={handleResetToOfficialSeeds}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 rounded-xl transition"
+            title="Reset to official municipal ordinances"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-stone-500" /> Reset to Official Laws
+          </button>
+
+          {isAdmin && (
+            <>
               <button
-                onClick={handleOpenAddDoc}
-                className="bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-black text-xs px-4 py-2.5 rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-md"
+                type="button"
+                onClick={() => setIsSmartImportOpen(true)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold rounded-xl shadow-md transition transform hover:-translate-y-0.5"
+                title="Smart Import PDF, DOCX, XLSX, or Scanned Legal Documents with OCR"
               >
-                <Plus className="w-4 h-4" />
-                <span>Add New Ordinance</span>
+                <Sparkles className="w-4 h-4 text-emerald-200" />
+                <span>+ Import Legal Document</span>
               </button>
-            )}
 
-            <button
-              onClick={handlePrint}
-              className="bg-white/10 hover:bg-white/20 text-white font-bold text-xs px-4 py-2.5 rounded-xl border border-white/20 flex items-center gap-2 transition cursor-pointer shadow-sm"
-            >
-              <Printer className="w-4 h-4 text-emerald-300" />
-              <span>Print Official Summary</span>
-            </button>
-
-            {onNavigateTab && (
               <button
-                onClick={() => onNavigateTab('add_swine')}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center gap-2 transition cursor-pointer shadow-md"
+                type="button"
+                onClick={handleCreateNew}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-xl shadow-xs transition"
               >
-                <Layers className="w-4 h-4" />
-                <span>Register Swine with Setbacks</span>
+                <Plus className="w-4 h-4 text-stone-300" /> Manual Entry
               </button>
-            )}
-          </div>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs (Dynamic Documents + Audit Tool) */}
-      <div className="bg-white rounded-2xl border border-stone-200 p-2 shadow-xs flex flex-wrap gap-2 text-xs font-bold">
-        {regulations.map(doc => (
+      {/* Document Selection Combo Box & Category Filters */}
+      <div className="bg-white rounded-2xl p-4 border border-stone-200 shadow-xs space-y-4">
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+          {/* Combo Box */}
+          <div className="flex-1 min-w-0">
+            <LegalDocumentComboBox
+              documents={regulations}
+              selectedId={selectedDoc?.id || ''}
+              onSelect={id => {
+                setSelectedDocId(id);
+                setSelectedArticleId(null);
+              }}
+            />
+          </div>
+
+          {/* Quick Search */}
+          <div className="relative lg:w-72">
+            <Search className="w-3.5 h-3.5 absolute left-3.5 top-3 text-stone-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="Search sections, keywords..."
+              className="w-full pl-9 pr-3 py-2 text-xs bg-stone-50 border border-stone-300 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-600"
+            />
+          </div>
+        </div>
+
+        {/* Category Pills Filter */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs border-t border-stone-100 pt-3">
+          <span className="text-stone-400 font-semibold text-[11px] uppercase tracking-wider shrink-0 mr-1">
+            Filter View:
+          </span>
           <button
-            key={doc.id}
-            onClick={() => {
-              setSelectedDocId(doc.id);
-              setActiveTabMode('document');
-            }}
-            className={`flex-1 min-w-[200px] py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition cursor-pointer ${
-              activeTabMode === 'document' && selectedDocId === doc.id
-                ? 'bg-emerald-800 text-white shadow-sm'
-                : 'text-stone-700 hover:bg-stone-100'
+            type="button"
+            onClick={() => setCategoryFilter('all')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition shrink-0 ${
+              categoryFilter === 'all'
+                ? 'bg-emerald-800 text-white shadow-xs'
+                : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
             }`}
           >
-            {doc.type === 'municipal_eo' ? (
-              <Building className="w-4 h-4 text-emerald-300" />
-            ) : (
-              <Shield className="w-4 h-4 text-emerald-300" />
-            )}
-            <span className="truncate">{doc.officialNumber} ({doc.seriesYear})</span>
+            All Active ({regulations.filter(r => !r.isArchived && r.status !== 'archived').length})
           </button>
-        ))}
 
-        <button
-          onClick={() => setActiveTabMode('audit')}
-          className={`flex-1 min-w-[200px] py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition cursor-pointer ${
-            activeTabMode === 'audit'
-              ? 'bg-emerald-800 text-white shadow-sm'
-              : 'text-stone-700 hover:bg-stone-100'
-          }`}
-        >
-          <Scale className="w-4 h-4 text-emerald-300" />
-          <span>Interactive Farm Compliance Audit</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setCategoryFilter('ordinance')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition shrink-0 flex items-center gap-1.5 ${
+              categoryFilter === 'ordinance'
+                ? 'bg-emerald-800 text-white shadow-xs'
+                : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" /> Ordinances (
+            {regulations.filter(r => (r.category === 'ordinance' || r.type.includes('ordinance')) && !r.isArchived && r.status !== 'archived').length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setCategoryFilter('resolution')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition shrink-0 flex items-center gap-1.5 ${
+              categoryFilter === 'resolution'
+                ? 'bg-emerald-800 text-white shadow-xs'
+                : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+            }`}
+          >
+            <ScrollText className="w-3.5 h-3.5" /> Resolutions (
+            {regulations.filter(r => (r.category === 'resolution' || r.type.includes('resolution')) && !r.isArchived && r.status !== 'archived').length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setCategoryFilter('national_reference')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition shrink-0 flex items-center gap-1.5 ${
+              categoryFilter === 'national_reference'
+                ? 'bg-emerald-800 text-white shadow-xs'
+                : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5" /> National References (
+            {regulations.filter(r => (r.category === 'national_reference' || r.type.includes('order')) && !r.isArchived && r.status !== 'archived').length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setCategoryFilter('archived')}
+            className={`px-3 py-1.5 rounded-xl font-bold transition shrink-0 flex items-center gap-1.5 ${
+              categoryFilter === 'archived'
+                ? 'bg-stone-800 text-white shadow-xs'
+                : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+            }`}
+          >
+            <Archive className="w-3.5 h-3.5" /> Archived (
+            {regulations.filter(r => r.isArchived || r.status === 'archived').length})
+          </button>
+        </div>
       </div>
 
-      {/* Main Viewport Content */}
-      {activeTabMode === 'audit' ? (
-        /* INTERACTIVE FARM SETBACK & BIOSECURITY AUDIT */
-        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-200 shadow-xs space-y-8">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-100 pb-5">
-            <div>
-              <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
-                Self-Assessment Tool
-              </span>
-              <h2 className="text-xl font-black text-stone-900 mt-0.5">
-                Farm Compliance Audit: Setback Buffers & Biosecurity Mandates
-              </h2>
-              <p className="text-xs text-stone-500 mt-1">
-                Enter your farm's physical buffer distances to test compliance against Municipal EO 12-2023 and Provincial Ordinance 2021-018.
-              </p>
-            </div>
-
-            {/* Overall Rating Badge */}
-            <div
-              className={`p-4 rounded-2xl border text-center ${
-                isFullyCompliant
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
-                  : 'bg-amber-50 border-amber-300 text-amber-950'
-              }`}
-            >
-              <span className="text-[10px] uppercase font-bold tracking-wider block text-stone-500">
-                Compliance Status
-              </span>
-              <div className="text-base font-black flex items-center justify-center gap-1.5 mt-0.5">
-                {isFullyCompliant ? (
-                  <>
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                    <span>Grade A - FULLY COMPLIANT</span>
-                  </>
-                ) : (
-                  <>
-                    <AlertTriangle className="w-5 h-5 text-amber-600" />
-                    <span>REQUIRES ADJUSTMENT</span>
-                  </>
-                )}
-              </div>
-              <span className="text-[11px] font-semibold text-stone-600 mt-1 block">
-                Score: {totalScore} / 8 Standard Points
-              </span>
-            </div>
-          </div>
-
-          {/* Section 1: The 3 Statutory Setback Distances */}
-          <div className="space-y-4">
-            <h3 className="font-bold text-stone-900 text-sm uppercase tracking-wide flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-emerald-700" />
-              <span>1. Physical Setback Buffers (Section 2, EO 12-2023)</span>
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-              {/* Buffer 1: Water */}
-              <div
-                className={`p-4 rounded-2xl border transition-all ${
-                  isWaterCompliant ? 'bg-emerald-50/50 border-emerald-300' : 'bg-red-50/50 border-red-300'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Droplets className="w-4 h-4 text-blue-600" />
-                    <span className="font-bold text-stone-900">Distance to Water Source</span>
-                  </div>
-                  {isWaterCompliant ? (
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                      Compliant (&gt;25m)
-                    </span>
-                  ) : (
-                    <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-800 font-bold text-[10px]">
-                      Violation (&le;25m)
-                    </span>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-stone-500">Your Current Buffer:</span>
-                    <span className="font-mono font-black text-sm text-stone-900">{auditWaterDist} meters</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="5"
-                    max="100"
-                    step="1"
-                    value={auditWaterDist}
-                    onChange={e => setAuditWaterDist(Number(e.target.value))}
-                    className="w-full accent-emerald-700 cursor-pointer"
-                  />
-                  <p className="text-[11px] text-stone-500">
-                    Required: Minimum 25m from streams, springs, rivers, or public wells.
-                  </p>
-                </div>
-              </div>
-
-              {/* Buffer 2: Built-up Residential */}
-              <div
-                className={`p-4 rounded-2xl border transition-all ${
-                  isBuiltUpCompliant ? 'bg-emerald-50/50 border-emerald-300' : 'bg-red-50/50 border-red-300'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Home className="w-4 h-4 text-emerald-700" />
-                    <span className="font-bold text-stone-900">Distance to Built-up Zone</span>
-                  </div>
-                  {isBuiltUpCompliant ? (
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                      Compliant (&gt;50m)
-                    </span>
-                  ) : (
-                    <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-800 font-bold text-[10px]">
-                      Violation (&le;50m)
-                    </span>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-stone-500">Your Current Buffer:</span>
-                    <span className="font-mono font-black text-sm text-stone-900">{auditBuiltUpDist} meters</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="10"
-                    max="150"
-                    step="1"
-                    value={auditBuiltUpDist}
-                    onChange={e => setAuditBuiltUpDist(Number(e.target.value))}
-                    className="w-full accent-emerald-700 cursor-pointer"
-                  />
-                  <p className="text-[11px] text-stone-500">
-                    Required: Minimum 50m from adjacent residential houses or cluster settlements.
-                  </p>
-                </div>
-              </div>
-
-              {/* Buffer 3: School / Tourism */}
-              <div
-                className={`p-4 rounded-2xl border transition-all ${
-                  isSchoolCompliant ? 'bg-emerald-50/50 border-emerald-300' : 'bg-red-50/50 border-red-300'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <School className="w-4 h-4 text-purple-700" />
-                    <span className="font-bold text-stone-900">Distance to School / Eco-site</span>
-                  </div>
-                  {isSchoolCompliant ? (
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                      Compliant (&gt;200m)
-                    </span>
-                  ) : (
-                    <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-800 font-bold text-[10px]">
-                      Violation (&le;200m)
-                    </span>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-stone-500">Your Current Buffer:</span>
-                    <span className="font-mono font-black text-sm text-stone-900">{auditSchoolDist} meters</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="50"
-                    max="500"
-                    step="5"
-                    value={auditSchoolDist}
-                    onChange={e => setAuditSchoolDist(Number(e.target.value))}
-                    className="w-full accent-emerald-700 cursor-pointer"
-                  />
-                  <p className="text-[11px] text-stone-500">
-                    Required: Minimum 200m from schools, churches, or eco-tourism sites.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 2: Statutory Biosecurity Checklist */}
-          <div className="space-y-4">
-            <h3 className="font-bold text-stone-900 text-sm uppercase tracking-wide flex items-center gap-2">
-              <Shield className="w-4 h-4 text-emerald-700" />
-              <span>2. Mandatory Farm Biosecurity Protocols</span>
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-              <label className="flex items-start gap-3 p-4 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
-                <input
-                  type="checkbox"
-                  checked={auditNoSwill}
-                  onChange={e => setAuditNoSwill(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-                />
-                <div>
-                  <span className="font-bold text-stone-900">Zero Swill-Feeding ("Bawal ang Pasaw")</span>
-                  <p className="text-[11px] text-stone-500">100% commercial feeds or safe cooked crops. No restaurant/kitchen food scraps.</p>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-3 p-4 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
-                <input
-                  type="checkbox"
-                  checked={auditFootbath}
-                  onChange={e => setAuditFootbath(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-                />
-                <div>
-                  <span className="font-bold text-stone-900">Disinfectant Footbath at Entrance</span>
-                  <p className="text-[11px] text-stone-500">Lime or virucidal chemical footbath maintained daily at pen entrance.</p>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-3 p-4 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
-                <input
-                  type="checkbox"
-                  checked={auditFence}
-                  onChange={e => setAuditFence(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-                />
-                <div>
-                  <span className="font-bold text-stone-900">Enclosed Perimeter Fence</span>
-                  <p className="text-[11px] text-stone-500">Physical netting or solid barrier preventing contact with stray dogs or feral animals.</p>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-3 p-4 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
-                <input
-                  type="checkbox"
-                  checked={auditEarTag}
-                  onChange={e => setAuditEarTag(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-                />
-                <div>
-                  <span className="font-bold text-stone-900">Official Municipal DA Ear Tag Installed</span>
-                  <p className="text-[11px] text-stone-500">All swine tagged with official Hinunangan code sequence.</p>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-3 p-4 rounded-2xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition md:col-span-2">
-                <input
-                  type="checkbox"
-                  checked={auditVHC}
-                  onChange={e => setAuditVHC(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-stone-300 focus:ring-emerald-500"
-                />
-                <div>
-                  <span className="font-bold text-stone-900">Veterinary Health Certificate (VHC) Pre-Movement Clearance</span>
-                  <p className="text-[11px] text-stone-500">Commitment to secure official municipal clearance before loading or transferring any hog.</p>
-                </div>
-              </label>
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* REGULATORY STATUTE DOCUMENT VIEWER WITH ADMIN EDIT CAPABILITIES */
-        <div className="space-y-6">
-          {/* Document Summary Card & Admin Action Toolbar */}
-          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-stone-200 shadow-xs space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-stone-100 pb-5">
-              <div className="space-y-1.5 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 font-black text-xs">
+      {/* Active Document Header Card */}
+      {selectedDoc && (
+        <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
+          {/* Document Masthead */}
+          <div className="p-6 bg-gradient-to-r from-emerald-950 via-stone-900 to-emerald-900 text-white">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="text-xs font-mono font-bold bg-emerald-600/90 text-white px-2.5 py-0.5 rounded-md">
                     {selectedDoc.officialNumber}
                   </span>
-                  <span className="px-2.5 py-1 rounded-full bg-stone-100 text-stone-700 font-bold text-xs">
+                  <span className="text-xs bg-white/15 text-emerald-100 px-2.5 py-0.5 rounded-md font-semibold">
                     {selectedDoc.seriesYear}
                   </span>
-                  <span className="text-xs text-stone-500 font-medium">
-                    Effective: {selectedDoc.effectiveDate}
-                  </span>
+                  {selectedDoc.status === 'archived' ? (
+                    <span className="text-xs bg-amber-500/90 text-amber-950 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                      <Archive className="w-3 h-3" /> Archived
+                    </span>
+                  ) : (
+                    <span className="text-xs bg-emerald-500/30 text-emerald-200 border border-emerald-400/30 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                      <Check className="w-3 h-3 text-emerald-400" /> Active Enacted Law
+                    </span>
+                  )}
                 </div>
 
-                <h2 className="text-lg sm:text-xl font-black text-stone-900 leading-snug">
+                <h3 className="text-base sm:text-lg font-bold mt-2.5 leading-snug">
                   {selectedDoc.title}
-                </h2>
+                </h3>
 
-                <p className="text-xs text-stone-600 font-medium">
-                  Issuing Authority: <strong>{selectedDoc.issuingAuthority}</strong>
-                </p>
-                <p className="text-xs text-emerald-900 font-semibold">
-                  Signatory: {selectedDoc.signatory} ({selectedDoc.signatoryTitle})
-                </p>
-                {selectedDoc.shortSummary && (
-                  <p className="text-xs text-stone-500 mt-1 bg-stone-50 p-3 rounded-xl border border-stone-200 leading-relaxed">
-                    {selectedDoc.shortSummary}
+                {selectedDoc.knownAs && (
+                  <p className="text-xs text-emerald-300 font-semibold mt-1">
+                    Known as: &ldquo;{selectedDoc.knownAs}&rdquo;
                   </p>
                 )}
+
+                <div className="flex items-center gap-4 mt-3 text-xs text-stone-300 flex-wrap">
+                  {selectedDoc.author && (
+                    <span>
+                      <strong className="text-stone-100">Author:</strong> {selectedDoc.author}
+                    </span>
+                  )}
+                  {selectedDoc.dateEnacted && (
+                    <span>
+                      <strong className="text-stone-100">Enacted:</strong> {selectedDoc.dateEnacted}
+                    </span>
+                  )}
+                  {selectedDoc.effectiveDate && (
+                    <span>
+                      <strong className="text-stone-100">Effectivity:</strong> {selectedDoc.effectiveDate}
+                    </span>
+                  )}
+                  {selectedDoc.signatory && (
+                    <span>
+                      <strong className="text-stone-100">Signatory:</strong> {selectedDoc.signatory} ({selectedDoc.signatoryTitle})
+                    </span>
+                  )}
+                </div>
               </div>
 
-              {/* Admin Action Buttons & Search */}
-              <div className="flex flex-col sm:items-end gap-3 shrink-0">
+              {/* Action Toolbar */}
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setIsOriginalViewerOpen(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 hover:text-white rounded-xl text-xs font-bold transition border border-emerald-500/30"
+                  title="Inspect Original Scanned Document / Source Split View"
+                >
+                  <Eye className="w-4 h-4" /> View Original Source
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsPrintViewOpen(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition border border-white/20"
+                >
+                  <Printer className="w-4 h-4" /> Print Document
+                </button>
+
                 {isAdmin && (
-                  <div className="flex flex-wrap items-center gap-2">
+                  <>
                     <button
-                      onClick={handleOpenEditDoc}
-                      className="px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-xs border border-emerald-300 flex items-center gap-1.5 transition cursor-pointer"
-                      title="Edit ordinance details and metadata"
+                      type="button"
+                      onClick={handleEditCurrent}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-xs"
                     >
-                      <Pencil className="w-3.5 h-3.5 text-emerald-700" />
-                      <span>Edit Ordinance</span>
+                      <Pencil className="w-3.5 h-3.5" /> Edit Decree
                     </button>
 
-                    <button
-                      onClick={handleOpenAddArticle}
-                      className="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-                      title="Add a new Section / Article"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add Article</span>
-                    </button>
-
-                    {regulations.length > 1 && (
+                    {selectedDoc.status === 'archived' || selectedDoc.isArchived ? (
                       <button
-                        onClick={() => handleDeleteDoc(selectedDoc.id)}
-                        className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 transition cursor-pointer"
-                        title="Delete this ordinance"
+                        type="button"
+                        onClick={() => handleRestoreDoc(selectedDoc)}
+                        className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <RotateCcw className="w-3.5 h-3.5" /> Restore
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleArchiveDoc(selectedDoc)}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-stone-700 hover:bg-stone-600 text-stone-200 rounded-xl text-xs font-semibold transition"
+                        title="Move to Archive"
+                      >
+                        <Archive className="w-3.5 h-3.5" /> Archive
                       </button>
                     )}
 
                     <button
-                      onClick={handleResetDefaults}
-                      className="p-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-600 transition cursor-pointer"
-                      title="Reset all ordinances to system defaults"
+                      type="button"
+                      onClick={() => setDeleteConfirmDoc(selectedDoc)}
+                      className="p-2 bg-red-950/60 hover:bg-red-900 text-red-200 hover:text-white rounded-xl transition border border-red-800/40"
+                      title="Permanently Delete"
                     >
-                      <RotateCcw className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
-                  </div>
+                  </>
                 )}
-
-                {/* Quick Search */}
-                <div className="relative w-full sm:w-64">
-                  <Search className="w-4 h-4 absolute left-3 top-2.5 text-stone-400" />
-                  <input
-                    type="text"
-                    placeholder="Search articles & keywords..."
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-stone-300 text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Setback Matrix within this Ordinance */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-xs font-black text-stone-900 uppercase tracking-wide flex items-center gap-1.5">
-                  <Scale className="w-4 h-4 text-emerald-700" />
-                  <span>Statutory Setback Buffers Enforced under this Law</span>
-                </h4>
-                {isAdmin && (
-                  <button
-                    onClick={handleOpenEditDoc}
-                    className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Pencil className="w-3 h-3" />
-                    <span>Edit Setback Limits</span>
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                {selectedDoc.setbackRules.map((rule, idx) => (
-                  <div key={idx} className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="font-black text-stone-900">{rule.target}</span>
-                      <span className="px-2 py-0.5 rounded-md bg-emerald-700 text-white font-black text-xs">
-                        &gt; {rule.minimumDistance} meters
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-emerald-800 font-bold block">{rule.statutoryBasis}</span>
-                    <p className="text-[11px] text-stone-600 leading-relaxed">{rule.rationale}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Penalties & Fines Schedule */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-xs font-black text-stone-900 uppercase tracking-wide flex items-center gap-1.5">
-                  <AlertTriangle className="w-4 h-4 text-amber-600" />
-                  <span>Penalties, Administrative Fines & Confiscations</span>
-                </h4>
-                {isAdmin && (
-                  <button
-                    onClick={handleOpenEditDoc}
-                    className="text-[11px] font-bold text-amber-800 hover:text-amber-950 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Pencil className="w-3 h-3" />
-                    <span>Edit Fines & Penalties</span>
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                {selectedDoc.penalties.map((pen, idx) => (
-                  <div key={idx} className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-amber-950">{pen.offenseTier}</span>
-                      <span className="font-black text-amber-800 text-sm">₱{pen.finePhp.toLocaleString()}</span>
-                    </div>
-                    <p className="text-[11px] text-amber-900/90 leading-snug">{pen.punitiveActions}</p>
-                  </div>
-                ))}
               </div>
             </div>
           </div>
 
-          {/* Detailed Articles Accordion / Cards */}
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="font-black text-stone-900 text-sm uppercase tracking-wide">
-                Official Key Provisions ({filteredArticles.length} Sections)
-              </h3>
-              {isAdmin && (
-                <button
-                  onClick={handleOpenAddArticle}
-                  className="px-3.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Article / Section</span>
-                </button>
-              )}
-            </div>
+          {/* Document Sub-Navigation Tabs */}
+          <div className="px-6 border-b border-stone-200 bg-stone-50/80 flex items-center gap-1 overflow-x-auto text-xs">
+            <button
+              type="button"
+              onClick={() => setActiveDocTab('articles')}
+              className={`px-4 py-3 font-bold border-b-2 transition shrink-0 flex items-center gap-1.5 ${
+                activeDocTab === 'articles'
+                  ? 'border-emerald-700 text-emerald-900 bg-white'
+                  : 'border-transparent text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <BookOpen className="w-4 h-4 text-emerald-700" /> Statutory Articles &amp; Sections (
+              {selectedDoc.articles ? selectedDoc.articles.reduce((acc, a) => acc + a.sections.length, 0) : selectedDoc.keyArticles.length})
+            </button>
 
-            <div className="space-y-3">
-              {filteredArticles.map((art, idx) => {
-                // Find actual index in parent document
-                const actualIdx = selectedDoc.keyArticles.findIndex(
-                  a => a.number === art.number && a.heading === art.heading
-                );
+            {selectedDoc.locationalStandards && selectedDoc.locationalStandards.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveDocTab('locational_standards')}
+                className={`px-4 py-3 font-bold border-b-2 transition shrink-0 flex items-center gap-1.5 ${
+                  activeDocTab === 'locational_standards'
+                    ? 'border-emerald-700 text-emerald-900 bg-white'
+                    : 'border-transparent text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <Compass className="w-4 h-4 text-emerald-700" /> Locational Design Standards (Sec. 9 &amp; 10)
+              </button>
+            )}
 
-                return (
-                  <div key={idx} className="bg-white rounded-2xl p-5 border border-stone-200 shadow-xs space-y-2 relative group">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 rounded-lg bg-stone-900 text-white font-mono font-bold text-xs">
-                          {art.number}
+            {selectedDoc.mltfMembers && selectedDoc.mltfMembers.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveDocTab('task_force')}
+                className={`px-4 py-3 font-bold border-b-2 transition shrink-0 flex items-center gap-1.5 ${
+                  activeDocTab === 'task_force'
+                    ? 'border-emerald-700 text-emerald-900 bg-white'
+                    : 'border-transparent text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <Shield className="w-4 h-4 text-emerald-700" /> Municipal Task Force (MLTF)
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setActiveDocTab('penalties')}
+              className={`px-4 py-3 font-bold border-b-2 transition shrink-0 flex items-center gap-1.5 ${
+                activeDocTab === 'penalties'
+                  ? 'border-emerald-700 text-emerald-900 bg-white'
+                  : 'border-transparent text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <Scale className="w-4 h-4 text-emerald-700" /> Setbacks &amp; Penalties
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveDocTab('compliance_checker')}
+              className={`px-4 py-3 font-bold border-b-2 transition shrink-0 flex items-center gap-1.5 ${
+                activeDocTab === 'compliance_checker'
+                  ? 'border-emerald-700 text-emerald-900 bg-white'
+                  : 'border-transparent text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <SlidersHorizontal className="w-4 h-4 text-emerald-700" /> Legal Compliance Checker
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveDocTab('attachments')}
+              className={`px-4 py-3 font-bold border-b-2 transition shrink-0 flex items-center gap-1.5 ${
+                activeDocTab === 'attachments'
+                  ? 'border-emerald-700 text-emerald-900 bg-white'
+                  : 'border-transparent text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <Paperclip className="w-4 h-4 text-emerald-700" /> Scanned Document &amp; Files
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveDocTab('history')}
+              className={`px-4 py-3 font-bold border-b-2 transition shrink-0 flex items-center gap-1.5 ${
+                activeDocTab === 'history'
+                  ? 'border-emerald-700 text-emerald-900 bg-white'
+                  : 'border-transparent text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <History className="w-4 h-4 text-emerald-700" /> Version History &amp; Audit
+            </button>
+          </div>
+
+          {/* Sub-Tab Contents */}
+          <div className="p-6">
+            {/* Tab 1: Articles & Sections */}
+            {activeDocTab === 'articles' && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Table of Contents sidebar */}
+                <div className="lg:col-span-4 bg-stone-50 p-4 rounded-2xl border border-stone-200 max-h-[600px] overflow-y-auto space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-stone-900 mb-3 flex items-center gap-1.5">
+                    <BookOpen className="w-3.5 h-3.5 text-emerald-700" /> Table of Contents
+                  </h4>
+
+                  {selectedDoc.articles && selectedDoc.articles.length > 0 ? (
+                    selectedDoc.articles.map(art => (
+                      <div key={art.id} className="space-y-1">
+                        <span className="text-[11px] font-bold text-stone-800 uppercase block px-2 py-1 bg-stone-200/60 rounded">
+                          {art.articleNumber} – {art.articleTitle}
                         </span>
-                        <h4 className="font-black text-stone-900 text-sm">{art.heading}</h4>
+                        <div className="pl-2 space-y-0.5">
+                          {art.sections.map(sec => (
+                            <button
+                              key={sec.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedArticleId(sec.id);
+                                const el = document.getElementById(`section-${sec.id}`);
+                                if (el) el.scrollIntoView({ behavior: 'smooth' });
+                              }}
+                              className={`w-full text-left px-2 py-1 text-[11px] rounded transition truncate block ${
+                                selectedArticleId === sec.id
+                                  ? 'bg-emerald-100 text-emerald-950 font-bold'
+                                  : 'text-stone-600 hover:bg-stone-100'
+                              }`}
+                            >
+                              {sec.sectionNumber}. {sec.sectionTitle}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] uppercase tracking-wide ${
-                            art.mandateCategory === 'prohibitive'
-                              ? 'bg-red-100 text-red-800 border border-red-200'
-                              : art.mandateCategory === 'mandatory'
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                              : 'bg-blue-100 text-blue-800 border border-blue-200'
-                          }`}
+                    ))
+                  ) : (
+                    <div className="space-y-1">
+                      {selectedDoc.keyArticles.map((art, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          className="w-full text-left px-2 py-1 text-xs text-stone-700 hover:bg-stone-100 rounded truncate block"
                         >
-                          {art.mandateCategory}
-                        </span>
+                          {art.number}. {art.heading}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-                        {isAdmin && (
-                          <div className="flex items-center gap-1 pl-2 border-l border-stone-200">
-                            <button
-                              onClick={() => handleOpenEditArticle(actualIdx)}
-                              className="p-1 rounded-lg hover:bg-stone-100 text-stone-600 hover:text-emerald-800 transition cursor-pointer"
-                              title="Edit this article"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteArticle(actualIdx)}
-                              className="p-1 rounded-lg hover:bg-red-50 text-stone-400 hover:text-red-700 transition cursor-pointer"
-                              title="Delete this article"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                {/* Main Articles View */}
+                <div className="lg:col-span-8 space-y-6">
+                  {/* Statutory Basis Box */}
+                  {selectedDoc.legalBasis && selectedDoc.legalBasis.length > 0 && (
+                    <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200 text-xs">
+                      <h4 className="font-bold text-stone-900 uppercase tracking-wider mb-2">
+                        Official Legal Basis &amp; Authority:
+                      </h4>
+                      <ul className="list-disc list-inside space-y-1 text-stone-700">
+                        {selectedDoc.legalBasis.map((basis, idx) => (
+                          <li key={idx}>{basis}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Articles & Sections Full Breakdown */}
+                  {filteredArticles.length === 0 ? (
+                    <div className="py-12 text-center text-xs text-stone-500">
+                      No sections matching &quot;{searchTerm}&quot; in this document.
+                    </div>
+                  ) : (
+                    filteredArticles.map(article => (
+                      <div
+                        key={article.id}
+                        className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden"
+                      >
+                        <div className="px-5 py-3.5 bg-emerald-950 text-white flex items-center justify-between">
+                          <div>
+                            <span className="text-xs font-mono text-emerald-300 font-bold mr-2">
+                              {article.articleNumber}
+                            </span>
+                            <span className="text-xs font-bold uppercase tracking-wider">
+                              {article.articleTitle}
+                            </span>
                           </div>
+                          <span className="text-[10px] text-emerald-200 bg-emerald-900/60 px-2 py-0.5 rounded-full font-semibold">
+                            {article.sections.length} Sections
+                          </span>
+                        </div>
+
+                        <div className="p-5 space-y-4 divide-y divide-stone-100">
+                          {article.sections.map(sec => (
+                            <div
+                              key={sec.id}
+                              id={`section-${sec.id}`}
+                              className="pt-4 first:pt-0 space-y-2 text-xs"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-emerald-950 font-mono text-xs">
+                                    {sec.sectionNumber}
+                                  </span>
+                                  <span className="font-bold text-stone-900 uppercase">
+                                    {sec.sectionTitle}
+                                  </span>
+                                </div>
+                                <span
+                                  className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold uppercase ${
+                                    sec.mandateCategory === 'prohibitive'
+                                      ? 'bg-red-100 text-red-800'
+                                      : sec.mandateCategory === 'penal'
+                                      ? 'bg-amber-100 text-amber-800'
+                                      : 'bg-emerald-100 text-emerald-800'
+                                  }`}
+                                >
+                                  {sec.mandateCategory || 'Mandatory'}
+                                </span>
+                              </div>
+
+                              <p className="text-stone-800 text-xs leading-relaxed text-justify bg-stone-50/70 p-3.5 rounded-xl border border-stone-100">
+                                {sec.content}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Tab 2: Locational Design Standards (Sec. 9 & 10) */}
+            {activeDocTab === 'locational_standards' && (
+              <LegalLocationalTable
+                standards={selectedDoc.locationalStandards}
+                proximity={selectedDoc.proximityRegulations}
+                officialNumber={selectedDoc.officialNumber}
+              />
+            )}
+
+            {/* Tab 3: Municipal Livestock Task Force */}
+            {activeDocTab === 'task_force' && (
+              <div className="space-y-6">
+                <div className="bg-emerald-900 text-white p-5 rounded-2xl flex items-start gap-4">
+                  <div className="p-2.5 bg-emerald-800 rounded-xl shrink-0">
+                    <Shield className="w-6 h-6 text-emerald-200" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold">
+                      Municipal Livestock Task Force (MLTF) – Section 7 &amp; 8
+                    </h4>
+                    <p className="text-xs text-emerald-100 mt-1 leading-relaxed">
+                      Statutory administrative body tasked with formulating the Implementing Rules and Regulations (IRR), conducting regular inspections, verifying public complaints, issuing Notices of Violation, and enforcing farm closures and dismantling of unauthorized structures.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
+                  <div className="px-5 py-3.5 bg-stone-50 border-b border-stone-200">
+                    <h5 className="text-xs font-bold text-stone-900 uppercase">
+                      Official Task Force Composition
+                    </h5>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-stone-800">
+                      <thead className="bg-stone-100 font-bold border-b border-stone-200 text-[11px]">
+                        <tr>
+                          <th className="px-4 py-3">Task Force Role</th>
+                          <th className="px-4 py-3">Official Designation</th>
+                          <th className="px-4 py-3">Department / Agency</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-100">
+                        {selectedDoc.mltfMembers?.map((member, idx) => (
+                          <tr key={idx} className="hover:bg-emerald-50/20 transition">
+                            <td className="px-4 py-3 font-bold text-emerald-900">
+                              {member.role}
+                            </td>
+                            <td className="px-4 py-3 font-semibold text-stone-900">
+                              {member.title}
+                            </td>
+                            <td className="px-4 py-3 text-stone-600">{member.office}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 4: Setbacks & Penalties */}
+            {activeDocTab === 'penalties' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Setback Rules */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-stone-900 flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-emerald-700" /> Statutory Setback Clearances
+                  </h4>
+                  <div className="space-y-3">
+                    {selectedDoc.setbackRules.map((rule, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-stone-50 p-4 rounded-2xl border border-stone-200 text-xs space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <strong className="text-stone-900 font-bold">{rule.target}</strong>
+                          <span className="font-mono font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                            ≥ {rule.minimumDistance} meters
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-stone-500 font-mono">{rule.statutoryBasis}</p>
+                        <p className="text-stone-600 text-[11px]">{rule.rationale}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Penalties */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-stone-900 flex items-center gap-1.5">
+                    <Scale className="w-4 h-4 text-emerald-700" /> Penal Clause &amp; Sanctions (Sec. 21)
+                  </h4>
+                  <div className="space-y-3">
+                    {selectedDoc.penalties.map((pen, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200 text-xs space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <strong className="text-amber-950 font-bold">{pen.offenseTier}</strong>
+                          {pen.finePhp > 0 && (
+                            <span className="font-mono font-bold text-amber-900 bg-amber-200/80 px-2 py-0.5 rounded">
+                              ₱{pen.finePhp.toLocaleString()} Fine
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-stone-700 text-xs leading-relaxed">{pen.punitiveActions}</p>
+                        {pen.imprisonment && (
+                          <p className="text-[11px] text-red-700 font-semibold mt-1">
+                            Imprisonment: {pen.imprisonment}
+                          </p>
                         )}
                       </div>
-                    </div>
-
-                    <p className="text-xs text-stone-700 leading-relaxed whitespace-pre-line">{art.text}</p>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Legal References Footnote */}
-          <div className="bg-stone-50 rounded-2xl p-5 border border-stone-200 text-xs text-stone-600 space-y-2">
-            <span className="font-bold text-stone-900 block">Statutory Legal Enactments & Enabling National Acts:</span>
-            <ul className="list-disc list-inside space-y-1 text-[11px]">
-              {selectedDoc.legalBasis.map((lb, i) => (
-                <li key={i}>{lb}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* ADMIN MODAL: EDIT ORDINANCE DETAILS                     */}
-      {/* ======================================================== */}
-      {isEditDocModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-3xl w-full p-6 sm:p-7 shadow-2xl border border-stone-200 space-y-5 my-8">
-            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
-              <div className="flex items-center gap-2">
-                <Pencil className="w-5 h-5 text-emerald-700" />
-                <h3 className="font-black text-stone-900 text-base">
-                  Edit Ordinance: {editDocForm.officialNumber}
-                </h3>
-              </div>
-              <button
-                onClick={() => setIsEditDocModalOpen(false)}
-                className="p-1.5 rounded-full hover:bg-stone-100 text-stone-400 hover:text-stone-700 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEditDoc} className="space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Official Number *</label>
-                  <input
-                    type="text"
-                    required
-                    value={editDocForm.officialNumber || ''}
-                    onChange={e => setEditDocForm({ ...editDocForm, officialNumber: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-semibold focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Series Year *</label>
-                  <input
-                    type="text"
-                    required
-                    value={editDocForm.seriesYear || ''}
-                    onChange={e => setEditDocForm({ ...editDocForm, seriesYear: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-semibold focus:ring-2 focus:ring-emerald-600"
-                  />
                 </div>
               </div>
+            )}
 
-              <div>
-                <label className="block font-bold text-stone-700 mb-1">Full Statutory Title *</label>
-                <textarea
-                  rows={2}
-                  required
-                  value={editDocForm.title || ''}
-                  onChange={e => setEditDocForm({ ...editDocForm, title: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium focus:ring-2 focus:ring-emerald-600"
-                />
-              </div>
+            {/* Tab 5: Legal Compliance Checker */}
+            {activeDocTab === 'compliance_checker' && (
+              <LegalComplianceCalculator document={selectedDoc} />
+            )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Issuing Authority</label>
-                  <input
-                    type="text"
-                    value={editDocForm.issuingAuthority || ''}
-                    onChange={e => setEditDocForm({ ...editDocForm, issuingAuthority: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium focus:ring-2 focus:ring-emerald-600"
-                  />
+            {/* Tab 6: Attachments & Scans */}
+            {activeDocTab === 'attachments' && (
+              <div className="space-y-6">
+                <div className="bg-stone-50 p-6 rounded-2xl border border-stone-200 text-center space-y-3">
+                  <Paperclip className="w-8 h-8 text-stone-400 mx-auto" />
+                  <div>
+                    <h4 className="text-xs font-bold text-stone-800">
+                      Official Scanned Legal Documents &amp; Enactment Certifications
+                    </h4>
+                    <p className="text-xs text-stone-500 mt-1 max-w-md mx-auto">
+                      Scanned true copies of the signed ordinance, Sangguniang Bayan minutes, and posting certifications.
+                    </p>
+                  </div>
+                  <div className="pt-2">
+                    <label className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-stone-100 border border-stone-300 text-stone-800 rounded-xl text-xs font-bold cursor-pointer transition shadow-2xs">
+                      <Upload className="w-3.5 h-3.5 text-emerald-700" /> Upload Scanned Document (PDF / Scan)
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept=".pdf,image/*"
+                        onChange={e => {
+                          if (e.target.files && e.target.files[0]) {
+                            const file = e.target.files[0];
+                            const newAttachment = {
+                              id: `att-${Date.now()}`,
+                              name: file.name,
+                              url: URL.createObjectURL(file),
+                              uploadedAt: new Date().toISOString().split('T')[0],
+                              fileSize: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+                            };
+                            const updated = {
+                              ...selectedDoc,
+                              sourceDocuments: [...(selectedDoc.sourceDocuments || []), newAttachment],
+                            };
+                            handleSaveDoc(updated, `Uploaded scan file: ${file.name}`);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Effective Date</label>
-                  <input
-                    type="text"
-                    value={editDocForm.effectiveDate || ''}
-                    onChange={e => setEditDocForm({ ...editDocForm, effectiveDate: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-              </div>
+                {/* Scanned files list */}
+                <div className="space-y-3">
+                  {selectedDoc.sourceDocuments && selectedDoc.sourceDocuments.length > 0 ? (
+                    selectedDoc.sourceDocuments.map(docFile => (
+                      <div
+                        key={docFile.id}
+                        className="bg-white p-4 rounded-2xl border border-stone-200 shadow-xs flex items-center justify-between gap-3"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-100">
+                            <FileText className="w-5 h-5 text-emerald-700" />
+                          </div>
+                          <div>
+                            <h5 className="text-xs font-bold text-stone-900">{docFile.name}</h5>
+                            <p className="text-[11px] text-stone-400">
+                              Uploaded on {docFile.uploadedAt} • {docFile.fileSize || 'PDF Document'}
+                            </p>
+                          </div>
+                        </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Signatory Name</label>
-                  <input
-                    type="text"
-                    value={editDocForm.signatory || ''}
-                    onChange={e => setEditDocForm({ ...editDocForm, signatory: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Signatory Title</label>
-                  <input
-                    type="text"
-                    value={editDocForm.signatoryTitle || ''}
-                    onChange={e => setEditDocForm({ ...editDocForm, signatoryTitle: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-stone-700 mb-1">Short Summary / Purpose</label>
-                <textarea
-                  rows={2}
-                  value={editDocForm.shortSummary || ''}
-                  onChange={e => setEditDocForm({ ...editDocForm, shortSummary: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium focus:ring-2 focus:ring-emerald-600"
-                />
-              </div>
-
-              {/* Setback Rules Editor */}
-              <div className="pt-2 border-t border-stone-100">
-                <span className="font-black text-stone-900 block mb-2">Setback Buffers (Meters):</span>
-                <div className="space-y-2">
-                  {editDocForm.setbackRules?.map((rule, idx) => (
-                    <div key={idx} className="flex items-center gap-2 bg-stone-50 p-2.5 rounded-xl border border-stone-200">
-                      <span className="font-bold text-stone-800 flex-1 truncate">{rule.target}</span>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-stone-500 text-[11px]">Min:</span>
-                        <input
-                          type="number"
-                          min="1"
-                          max="1000"
-                          value={rule.minimumDistance}
-                          onChange={e => {
-                            const newRules = [...(editDocForm.setbackRules || [])];
-                            newRules[idx] = { ...newRules[idx], minimumDistance: Number(e.target.value) };
-                            setEditDocForm({ ...editDocForm, setbackRules: newRules });
-                          }}
-                          className="w-16 px-2 py-1 rounded-lg border border-stone-300 font-bold bg-white text-center"
-                        />
-                        <span className="text-stone-500 font-bold">m</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setIsPrintViewOpen(true)}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-lg transition"
+                          >
+                            <Eye className="w-3.5 h-3.5" /> View
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  ) : (
+                    <p className="text-xs text-stone-500 italic text-center py-4">
+                      Source page not yet provided.
+                    </p>
+                  )}
                 </div>
               </div>
+            )}
 
-              {/* Penalties Editor */}
-              <div className="pt-2 border-t border-stone-100">
-                <span className="font-black text-stone-900 block mb-2">Penalty Schedule (PHP):</span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {editDocForm.penalties?.map((pen, idx) => (
-                    <div key={idx} className="bg-amber-50 p-2.5 rounded-xl border border-amber-200 space-y-1">
-                      <span className="font-bold text-amber-950 block">{pen.offenseTier}</span>
-                      <div className="flex items-center gap-1">
-                        <span className="text-amber-800 font-bold">₱</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="100"
-                          value={pen.finePhp}
-                          onChange={e => {
-                            const newPens = [...(editDocForm.penalties || [])];
-                            newPens[idx] = { ...newPens[idx], finePhp: Number(e.target.value) };
-                            setEditDocForm({ ...editDocForm, penalties: newPens });
-                          }}
-                          className="w-full px-2 py-1 rounded-lg border border-amber-300 font-black bg-white"
-                        />
+            {/* Tab 7: Version History & Audit Trail */}
+            {activeDocTab === 'history' && (
+              <div className="space-y-6">
+                <div className="bg-stone-50 p-4 rounded-2xl border border-stone-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <History className="w-4 h-4 text-emerald-800" />
+                    <h4 className="text-xs font-bold text-stone-900">
+                      Audit Trail &amp; Document Version History
+                    </h4>
+                  </div>
+                  <span className="text-[11px] text-stone-500 font-mono">
+                    Official Record ID: {selectedDoc.id}
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {(selectedDoc.auditLogs || []).length === 0 ? (
+                    <div className="p-4 bg-white rounded-xl border border-stone-200 text-xs text-stone-500">
+                      Initial Enactment Record: Created on {selectedDoc.dateEnacted || 'March 3, 2025'} by Sangguniang Bayan Secretariat.
+                    </div>
+                  ) : (
+                    selectedDoc.auditLogs?.map(log => (
+                      <div
+                        key={log.id}
+                        className="bg-white p-3.5 rounded-xl border border-stone-200 flex items-start justify-between gap-3 text-xs"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-stone-900 capitalize">
+                              Action: {log.action}
+                            </span>
+                            <span className="text-[10px] text-stone-400 font-mono">
+                              {new Date(log.timestamp).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-stone-600 text-[11px]">{log.details}</p>
+                        </div>
+                        <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded">
+                          {log.performedBy}
+                        </span>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-stone-100">
-                <button
-                  type="button"
-                  onClick={() => setIsEditDocModalOpen(false)}
-                  className="px-4 py-2 rounded-xl border border-stone-300 text-stone-700 font-bold cursor-pointer hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-md"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>Save Ordinance Changes</span>
-                </button>
-              </div>
-            </form>
+            )}
           </div>
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* ADMIN MODAL: ADD NEW ORDINANCE                          */}
-      {/* ======================================================== */}
-      {isAddDocModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-7 shadow-2xl border border-stone-200 space-y-5 my-8">
-            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
-              <div className="flex items-center gap-2">
-                <Plus className="w-5 h-5 text-emerald-700" />
-                <h3 className="font-black text-stone-900 text-base">Add New Ordinance / Executive Order</h3>
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmDoc && (
+        <div className="fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="p-2.5 bg-red-100 rounded-xl">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
               </div>
-              <button
-                onClick={() => setIsAddDocModalOpen(false)}
-                className="p-1.5 rounded-full hover:bg-stone-100 text-stone-400 hover:text-stone-700 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveNewDoc} className="space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Decree Type *</label>
-                  <select
-                    value={editDocForm.type || 'municipal_eo'}
-                    onChange={e =>
-                      setEditDocForm({
-                        ...editDocForm,
-                        type: e.target.value as 'municipal_eo' | 'provincial_ordinance',
-                      })
-                    }
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-semibold focus:ring-2 focus:ring-emerald-600 bg-white"
-                  >
-                    <option value="municipal_eo">Municipal Executive Order (EO)</option>
-                    <option value="provincial_ordinance">Provincial Ordinance</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Official Number *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Executive Order No. 14"
-                    value={editDocForm.officialNumber || ''}
-                    onChange={e => setEditDocForm({ ...editDocForm, officialNumber: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-semibold focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-              </div>
-
               <div>
-                <label className="block font-bold text-stone-700 mb-1">Full Title *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. An Order Strengthening Biosurveillance in Hinunangan..."
-                  value={editDocForm.title || ''}
-                  onChange={e => setEditDocForm({ ...editDocForm, title: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 font-semibold focus:ring-2 focus:ring-emerald-600"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Series Year</label>
-                  <input
-                    type="text"
-                    placeholder="Series of 2024"
-                    value={editDocForm.seriesYear || ''}
-                    onChange={e => setEditDocForm({ ...editDocForm, seriesYear: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Effective Date</label>
-                  <input
-                    type="text"
-                    placeholder="November 1, 2024 (Active)"
-                    value={editDocForm.effectiveDate || ''}
-                    onChange={e => setEditDocForm({ ...editDocForm, effectiveDate: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Issuing Authority</label>
-                  <input
-                    type="text"
-                    value={editDocForm.issuingAuthority || ''}
-                    onChange={e => setEditDocForm({ ...editDocForm, issuingAuthority: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Signatory Official</label>
-                  <input
-                    type="text"
-                    value={editDocForm.signatory || ''}
-                    onChange={e => setEditDocForm({ ...editDocForm, signatory: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-stone-700 mb-1">Summary of Regulatory Objectives</label>
-                <textarea
-                  rows={2}
-                  placeholder="Summarize the core mandates for farmers and field personnel..."
-                  value={editDocForm.shortSummary || ''}
-                  onChange={e => setEditDocForm({ ...editDocForm, shortSummary: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium focus:ring-2 focus:ring-emerald-600"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-stone-100">
-                <button
-                  type="button"
-                  onClick={() => setIsAddDocModalOpen(false)}
-                  className="px-4 py-2 rounded-xl border border-stone-300 text-stone-700 font-bold cursor-pointer hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-md"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>Create & Publish Ordinance</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* ADMIN MODAL: ADD / EDIT ARTICLE                         */}
-      {/* ======================================================== */}
-      {isArticleModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl border border-stone-200 space-y-5">
-            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
-              <div className="flex items-center gap-2">
-                <BookOpen className="w-5 h-5 text-emerald-700" />
-                <h3 className="font-black text-stone-900 text-base">
-                  {editingArticleIndex !== null ? 'Edit Article / Provision' : 'Add New Article / Section'}
+                <h3 className="text-sm font-bold text-stone-900">
+                  Delete Legal Document?
                 </h3>
+                <p className="text-xs text-stone-500 font-mono">
+                  {deleteConfirmDoc.officialNumber}
+                </p>
               </div>
-              <button
-                onClick={() => setIsArticleModalOpen(false)}
-                className="p-1.5 rounded-full hover:bg-stone-100 text-stone-400 hover:text-stone-700 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
 
-            <form onSubmit={handleSaveArticle} className="space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Section / Article Number *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Section 7 or Article IV"
-                    value={articleForm.number}
-                    onChange={e => setArticleForm({ ...articleForm, number: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-bold focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Are you sure you want to permanently delete{' '}
+              <strong className="text-stone-900">&ldquo;{deleteConfirmDoc.title}&rdquo;</strong>? This action cannot be undone. Alternatively, you can choose &ldquo;Archive&rdquo; to preserve the statutory record without permanently erasing it.
+            </p>
 
-                <div>
-                  <label className="block font-bold text-stone-700 mb-1">Mandate Classification *</label>
-                  <select
-                    value={articleForm.mandateCategory}
-                    onChange={e =>
-                      setArticleForm({
-                        ...articleForm,
-                        mandateCategory: e.target.value as 'mandatory' | 'prohibitive' | 'advisory',
-                      })
-                    }
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-bold focus:ring-2 focus:ring-emerald-600 bg-white"
-                  >
-                    <option value="mandatory">Mandatory (Compulsory Protocol)</option>
-                    <option value="prohibitive">Prohibitive (Strict Ban / Pasaw)</option>
-                    <option value="advisory">Advisory (Guideline / Standard)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-stone-700 mb-1">Heading / Subject *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Mandatory Visitor Disinfection Logbook"
-                  value={articleForm.heading}
-                  onChange={e => setArticleForm({ ...articleForm, heading: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 font-bold focus:ring-2 focus:ring-emerald-600"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-stone-700 mb-1">Mandate Legal Text / Instructions *</label>
-                <textarea
-                  rows={4}
-                  required
-                  placeholder="Describe the full legal requirements, obligations, and enforcement rules..."
-                  value={articleForm.text}
-                  onChange={e => setArticleForm({ ...articleForm, text: e.target.value })}
-                  className="w-full px-3 py-2.5 rounded-xl border border-stone-300 font-medium focus:ring-2 focus:ring-emerald-600 leading-relaxed"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-stone-100">
-                <button
-                  type="button"
-                  onClick={() => setIsArticleModalOpen(false)}
-                  className="px-4 py-2 rounded-xl border border-stone-300 text-stone-700 font-bold cursor-pointer hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-md"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>Save Article</span>
-                </button>
-              </div>
-            </form>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmDoc(null)}
+                className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-xl transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleArchiveDoc(deleteConfirmDoc);
+                  setDeleteConfirmDoc(null);
+                }}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition"
+              >
+                Archive Instead
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition"
+              >
+                Permanently Delete
+              </button>
+            </div>
           </div>
         </div>
       )}
+
+      {/* Edit / Create Modal */}
+      <LegalDocumentEditModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        documentToEdit={docToEdit}
+        onSave={handleSaveDoc}
+        currentUserRole={currentUser?.role}
+      />
+
+      {/* Print View Modal */}
+      {isPrintViewOpen && selectedDoc && (
+        <LegalDocumentPrintView
+          document={selectedDoc}
+          onClose={() => setIsPrintViewOpen(false)}
+        />
+      )}
+
+      {/* Smart Import Wizard Modal */}
+      <LegalSmartImportModal
+        isOpen={isSmartImportOpen}
+        onClose={() => setIsSmartImportOpen(false)}
+        onImportSuccess={importedDocs => {
+          const docs = Array.isArray(importedDocs) ? importedDocs : [importedDocs];
+          setRegulations(storageService.getAsfRegulations());
+          if (docs.length > 0) {
+            setSelectedDocId(docs[0].id);
+            showToast(`Successfully smart-imported ${docs.length} legal document${docs.length > 1 ? 's' : ''}!`);
+          }
+        }}
+        currentUser={currentUser}
+      />
+
+      {/* Import History Modal */}
+      <LegalImportHistoryModal
+        isOpen={isImportHistoryOpen}
+        onClose={() => setIsImportHistoryOpen(false)}
+        onSelectDocument={docId => {
+          setSelectedDocId(docId);
+        }}
+      />
+
+      {/* Original Source Split-Viewer Modal */}
+      <LegalDocumentOriginalViewerModal
+        isOpen={isOriginalViewerOpen}
+        onClose={() => setIsOriginalViewerOpen(false)}
+        document={selectedDoc}
+      />
     </div>
   );
 };

@@ -287,10 +287,29 @@ export interface BackgroundPhotoConfig {
   fixed?: boolean;
 }
 
+export interface LegalDocumentsLandingConfig {
+  showLegalDocuments: boolean;
+  sectionTitle?: string;
+  sectionSubtitle?: string;
+  showLatestDocuments: boolean;
+  showFeaturedDocuments: boolean;
+  showSearch: boolean;
+  maxFeaturedDocuments: number;
+  featuredDocumentIds: string[];
+  showDocumentNumber: boolean;
+  showTitle: boolean;
+  showDate: boolean;
+  showCategory: boolean;
+  showViewButton: boolean;
+}
+
 export interface LandingCmsConfig {
   version: string;
   lastUpdated: string;
   status: 'published' | 'draft';
+  
+  // Legal Documents Section Settings
+  legalDocumentsConfig?: LegalDocumentsLandingConfig;
   
   // General & Browser Branding
   siteName: string;
@@ -307,6 +326,9 @@ export interface LandingCmsConfig {
   address: string;
 
   // Header & Navigation
+  headerTitle?: string;
+  headerSubtitle?: string;
+  headerLanguageEnabled?: boolean;
   headerLogoUrl: string;
   headerLogoWidth: number;
   headerHeight: number;

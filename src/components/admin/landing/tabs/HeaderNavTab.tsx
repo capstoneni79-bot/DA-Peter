@@ -64,6 +64,29 @@ export const HeaderNavTab: React.FC<HeaderNavTabProps> = ({ config, onChange }) 
           <h3 className="font-bold text-stone-900 text-sm">Header Styling & Dimensions</h3>
         </div>
 
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-2 border-b border-stone-100">
+          <div>
+            <label className="block font-semibold text-stone-700 mb-1">Office Brand Title</label>
+            <input
+              type="text"
+              value={config.headerTitle || 'Municipal Agriculture Office - Hinunangan'}
+              onChange={e => onChange({ headerTitle: e.target.value })}
+              placeholder="Municipal Agriculture Office - Hinunangan"
+              className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium text-xs focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+          <div>
+            <label className="block font-semibold text-stone-700 mb-1">Header Subtitle</label>
+            <input
+              type="text"
+              value={config.headerSubtitle || 'Swine Farm Registry and Georeferencing'}
+              onChange={e => onChange({ headerSubtitle: e.target.value })}
+              placeholder="Swine Farm Registry and Georeferencing"
+              className="w-full px-3 py-2 rounded-xl border border-stone-300 font-medium text-xs focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="block font-semibold text-stone-700 mb-1">Header Background Color</label>

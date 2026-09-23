@@ -1,11 +1,34 @@
 import { INITIAL_LANDING_CMS_CONFIG } from '../data/initialLandingCmsData';
-import { LandingCmsConfig, MediaItem } from '../types/landingCms';
+import { LandingCmsConfig, LegalDocumentsLandingConfig, MediaItem } from '../types/landingCms';
 import { storageService } from './storageService';
 
 const CMS_STORAGE_KEYS = {
   PUBLISHED: 'da_hinunangan_landing_cms_published_v2',
   DRAFT: 'da_hinunangan_landing_cms_draft_v2',
 };
+
+export const DEFAULT_LEGAL_DOCUMENTS_CONFIG: LegalDocumentsLandingConfig = {
+  showLegalDocuments: true,
+  sectionTitle: 'Legal Decrees & Ordinances',
+  sectionSubtitle: 'Official statutory framework, zoning ordinances, and regulatory resolutions enacted by the Municipality of Hinunangan',
+  showLatestDocuments: true,
+  showFeaturedDocuments: true,
+  showSearch: true,
+  maxFeaturedDocuments: 5,
+  featuredDocumentIds: ['mo-hinunangan-2025-59', 'res-hinunangan-376-2026'],
+  showDocumentNumber: true,
+  showTitle: true,
+  showDate: true,
+  showCategory: true,
+  showViewButton: true,
+};
+
+function ensureLegalConfig(config: LandingCmsConfig): LandingCmsConfig {
+  if (!config.legalDocumentsConfig) {
+    config.legalDocumentsConfig = { ...DEFAULT_LEGAL_DOCUMENTS_CONFIG };
+  }
+  return config;
+}
 
 function getLocalItem<T>(key: string, fallback: T): T {
   try {
@@ -48,15 +71,16 @@ export const landingCmsService = {
   getPublishedConfig(): LandingCmsConfig {
     const data = getLocalItem<LandingCmsConfig | null>(CMS_STORAGE_KEYS.PUBLISHED, null);
     if (!data) {
-      setLocalItem(CMS_STORAGE_KEYS.PUBLISHED, INITIAL_LANDING_CMS_CONFIG);
-      return INITIAL_LANDING_CMS_CONFIG;
+      const initial = ensureLegalConfig({ ...INITIAL_LANDING_CMS_CONFIG });
+      setLocalItem(CMS_STORAGE_KEYS.PUBLISHED, initial);
+      return initial;
     }
-    return data;
+    return ensureLegalConfig(data);
   },
 
   getDraftConfig(): LandingCmsConfig {
     const draft = getLocalItem<LandingCmsConfig | null>(CMS_STORAGE_KEYS.DRAFT, null);
-    if (draft) return draft;
+    if (draft) return ensureLegalConfig(draft);
     return this.getPublishedConfig();
   },
 
