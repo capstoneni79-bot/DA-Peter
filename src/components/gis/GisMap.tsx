@@ -137,6 +137,7 @@ export interface GisMapProps {
   onViewSwineRecord?: (swine: SwineRecord) => void;
   onPickLocation?: (lat: number, lng: number, closestBarangay?: string) => void;
   isLocationPicker?: boolean;
+  isManualPinMode?: boolean;
   initialCenter?: [number, number];
   targetSwineId?: string | null;
 }
@@ -155,6 +156,7 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
   onViewSwineRecord,
   onPickLocation,
   isLocationPicker = false,
+  isManualPinMode: initialManualPinMode = false,
   initialCenter,
   targetSwineId,
   onSwitchToGoogle,
@@ -169,6 +171,23 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
   const swinePinsLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const farmerPinsLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const heatmapLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  const droppedPinLayerRef = useRef<L.LayerGroup | null>(null);
+
+  // Manual Pin Mode state
+  const [isManualPinMode, setIsManualPinMode] = useState<boolean>(initialManualPinMode || isLocationPicker);
+  const [droppedPin, setDroppedPin] = useState<{ lat: number; lng: number; barangay: string } | null>(
+    initialCenter ? { lat: initialCenter[0], lng: initialCenter[1], barangay: findClosestBarangay(initialCenter[0], initialCenter[1]).name } : null
+  );
+
+  // Refs for stable map click event handler
+  const onPickLocationRef = useRef(onPickLocation);
+  onPickLocationRef.current = onPickLocation;
+
+  const isManualPinModeRef = useRef(isManualPinMode);
+  isManualPinModeRef.current = isManualPinMode;
+
+  const isLocationPickerRef = useRef(isLocationPicker);
+  isLocationPickerRef.current = isLocationPicker;
 
   // Determine if current user is Focal Person with assigned barangay restriction
   const isFocal = currentRole === 'focal' || currentUser?.role === 'focal';
@@ -377,6 +396,7 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
     labelsLayerGroupRef.current = L.layerGroup().addTo(map);
     swinePinsLayerGroupRef.current = L.layerGroup().addTo(map);
     farmerPinsLayerGroupRef.current = L.layerGroup().addTo(map);
+    droppedPinLayerRef.current = L.layerGroup().addTo(map);
 
     mapInstanceRef.current = map;
 
@@ -387,8 +407,15 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
     map.on('click', (e: L.LeafletMouseEvent) => {
       const { lat, lng } = e.latlng;
       const closest = findClosestBarangay(lat, lng);
-      if (onPickLocation) {
-        onPickLocation(Number(lat.toFixed(6)), Number(lng.toFixed(6)), closest.name);
+      const roundedLat = Number(lat.toFixed(6));
+      const roundedLng = Number(lng.toFixed(6));
+
+      if (isManualPinModeRef.current || isLocationPickerRef.current) {
+        setDroppedPin({ lat: roundedLat, lng: roundedLng, barangay: closest.name });
+      }
+
+      if (onPickLocationRef.current) {
+        onPickLocationRef.current(roundedLat, roundedLng, closest.name);
       }
     });
 
@@ -476,7 +503,7 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
     });
   }, [showBoundaries, showLabels, boundaryOpacity, authorizedBarangayName, allBarangayMetrics, handleBarangayClick]);
 
-  // 3. Render Heatmap Layer
+  // 3. Render Heatmap Layer (Multi-layer soft radial gradient heatmap matching professional style)
   useEffect(() => {
     if (!heatmapLayerGroupRef.current) return;
     heatmapLayerGroupRef.current.clearLayers();
@@ -484,20 +511,91 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
     if (!showHeatmap) return;
 
     heatmapData.points.forEach(pt => {
-      const color = getHeatmapColor(pt.intensity, heatmapOpacity);
-      const radius = Math.max(120, Math.min(650, pt.intensity * 600));
+      const radius = Math.max(160, Math.min(750, pt.intensity * 700));
+      const intensity = pt.intensity;
 
-      const circle = L.circle([pt.lat, pt.lng], {
-        radius,
-        fillColor: color,
-        fillOpacity: heatmapOpacity,
-        color: '#ffffff',
-        weight: 0.75,
-        opacity: 0.3,
-      });
-      circle.addTo(heatmapLayerGroupRef.current!);
+      // 1. Outer Halo (Teal/Green gradient layer)
+      if (intensity >= 0.1) {
+        L.circle([pt.lat, pt.lng], {
+          radius: radius * 1.5,
+          fillColor: '#10b981',
+          fillOpacity: heatmapOpacity * 0.22,
+          color: 'transparent',
+          weight: 0,
+        }).addTo(heatmapLayerGroupRef.current!);
+      }
+
+      // 2. Mid Transition (Yellow/Amber gradient layer)
+      if (intensity >= 0.35) {
+        L.circle([pt.lat, pt.lng], {
+          radius: radius * 1.0,
+          fillColor: '#eab308',
+          fillOpacity: heatmapOpacity * 0.40,
+          color: 'transparent',
+          weight: 0,
+        }).addTo(heatmapLayerGroupRef.current!);
+      }
+
+      // 3. Inner Hot Zone (Orange gradient layer)
+      if (intensity >= 0.65) {
+        L.circle([pt.lat, pt.lng], {
+          radius: radius * 0.6,
+          fillColor: '#f97316',
+          fillOpacity: heatmapOpacity * 0.65,
+          color: 'transparent',
+          weight: 0,
+        }).addTo(heatmapLayerGroupRef.current!);
+      }
+
+      // 4. Core Hotspot (Crimson Red gradient layer)
+      if (intensity >= 0.85) {
+        L.circle([pt.lat, pt.lng], {
+          radius: radius * 0.3,
+          fillColor: '#dc2626',
+          fillOpacity: heatmapOpacity * 0.88,
+          color: 'transparent',
+          weight: 0,
+        }).addTo(heatmapLayerGroupRef.current!);
+      }
     });
   }, [showHeatmap, heatmapData, heatmapOpacity]);
+
+  // Render Dropped Manual Pin Marker
+  useEffect(() => {
+    if (!droppedPinLayerRef.current) return;
+    droppedPinLayerRef.current.clearLayers();
+
+    if (!droppedPin) return;
+
+    const pinIcon = L.divIcon({
+      className: 'custom-manual-pin',
+      html: `
+        <div style="position: relative; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; z-index: 1000;">
+          <div style="background-color: #047857; color: white; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 4px 14px rgba(0,0,0,0.5); font-size: 18px;">
+            📍
+          </div>
+          <div style="background: rgba(4, 120, 87, 0.95); color: white; font-weight: 700; font-size: 10px; padding: 2px 6px; border-radius: 6px; border: 1px solid white; white-space: nowrap; margin-top: 3px; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">
+            Dropped Pin (${droppedPin.lat.toFixed(4)}, ${droppedPin.lng.toFixed(4)})
+          </div>
+        </div>
+      `,
+      iconSize: [38, 52],
+      iconAnchor: [19, 52],
+    });
+
+    const marker = L.marker([droppedPin.lat, droppedPin.lng], { icon: pinIcon });
+    marker.bindPopup(`
+      <div style="font-family: system-ui, sans-serif; min-width: 180px; color: #18181b;">
+        <strong style="color: #047857; font-size: 13px;">📍 Manual GPS Pin Set</strong>
+        <div style="font-size: 11px; margin-top: 4px;">
+          <div>Barangay: <strong>${droppedPin.barangay}</strong></div>
+          <div>Latitude: <strong>${droppedPin.lat}</strong></div>
+          <div>Longitude: <strong>${droppedPin.lng}</strong></div>
+        </div>
+      </div>
+    `);
+    marker.addTo(droppedPinLayerRef.current);
+  }, [droppedPin]);
 
   // 4. Render Swine Markers with "View Swine Record" Button
   useEffect(() => {
@@ -728,6 +826,39 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
             </div>
           )}
         </div>
+
+        {/* Manual Pin Mode Toggle Button */}
+        <button
+          onClick={() => setIsManualPinMode(!isManualPinMode)}
+          className={`px-3 py-1.5 rounded-xl border shadow-md backdrop-blur-md flex items-center gap-1.5 text-xs font-semibold transition cursor-pointer ${
+            isManualPinMode
+              ? 'bg-emerald-600 text-white border-emerald-500 ring-2 ring-emerald-400/30'
+              : 'bg-stone-900/90 text-stone-200 border-stone-700 hover:bg-stone-800'
+          }`}
+          title="Enable Manual Pin Mode to click and drop custom GPS coordinates for swine registration"
+        >
+          <MapPin className={`w-3.5 h-3.5 ${isManualPinMode ? 'text-white' : 'text-emerald-400'}`} />
+          <span>{isManualPinMode ? 'Pin Mode Active' : 'Manual Pin'}</span>
+        </button>
+
+        {/* Heatmap Checkbox & Toggle Button */}
+        <label
+          className={`px-2.5 py-1.5 rounded-xl border shadow-md backdrop-blur-md flex items-center gap-1.5 text-xs font-semibold transition cursor-pointer select-none ${
+            showHeatmap
+              ? 'bg-orange-600 text-white border-orange-500 ring-2 ring-orange-400/30'
+              : 'bg-stone-900/90 text-stone-200 border-stone-700 hover:bg-stone-800'
+          }`}
+          title="Toggle Livestock Swine Density Heatmap Layer"
+        >
+          <input
+            type="checkbox"
+            checked={showHeatmap}
+            onChange={e => setShowHeatmap(e.target.checked)}
+            className="w-3.5 h-3.5 rounded accent-orange-500 cursor-pointer"
+          />
+          <Flame className={`w-3.5 h-3.5 ${showHeatmap ? 'text-white' : 'text-orange-400'}`} />
+          <span className="hidden sm:inline">Heatmap</span>
+        </label>
 
         {/* Filters Toggle Button */}
         <button
@@ -972,6 +1103,15 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
         </div>
       )}
 
+      {/* Manual Pin Mode Active Banner */}
+      {isManualPinMode && (
+        <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-30 bg-emerald-950/95 border border-emerald-500 text-white px-4 py-2 rounded-2xl shadow-2xl backdrop-blur-md text-xs flex items-center gap-2 animate-bounce">
+          <MapPin className="w-4 h-4 text-emerald-300" />
+          <span><strong>Manual Pin Mode Active:</strong> Click anywhere on the map to drop a custom GPS coordinate pin for swine registration.</span>
+          <button onClick={() => setIsManualPinMode(false)} className="ml-2 text-emerald-300 hover:text-white font-bold cursor-pointer">×</button>
+        </div>
+      )}
+
       {/* Map Container */}
       <div ref={mapContainerRef} className="w-full h-full z-10" />
 
@@ -1092,14 +1232,38 @@ const LeafletGisMap: React.FC<LeafletGisMapProps> = ({
               </div>
 
               {showHeatmap && (
-                <div className="pt-1 border-t border-stone-800">
-                  <span className="text-[10px] text-stone-400 block mb-1 font-semibold">
-                    HEATMAP INTENSITY ({heatmapMode.replace('_', ' ').toUpperCase()}):
-                  </span>
-                  <div className="h-2 w-full rounded bg-gradient-to-r from-emerald-500 via-amber-400 to-red-600" />
-                  <div className="flex justify-between text-[9px] text-stone-400 mt-0.5">
-                    <span>Min: {heatmapData.minVal}</span>
-                    <span>Max: {heatmapData.maxVal}</span>
+                <div className="pt-2 border-t border-stone-800 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-stone-400 font-semibold uppercase tracking-wider">
+                      HEATMAP DENSITY RANGE ({heatmapMode.replace('_', ' ').toUpperCase()})
+                    </span>
+                  </div>
+                  <div className="h-2.5 w-full rounded-md bg-gradient-to-r from-[#10b981] via-[#facc15] via-[#fb923c] to-[#dc2626]" />
+                  <div className="space-y-1 text-[10px] text-stone-300 pt-1">
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#10b981]" /> Low Density
+                      </span>
+                      <strong className="text-emerald-400">
+                        {heatmapData.minVal} – {Math.round(heatmapData.minVal + (heatmapData.maxVal - heatmapData.minVal) * 0.33)}
+                      </strong>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#facc15]" /> Medium Density
+                      </span>
+                      <strong className="text-yellow-400">
+                        {Math.round(heatmapData.minVal + (heatmapData.maxVal - heatmapData.minVal) * 0.33) + 1} – {Math.round(heatmapData.minVal + (heatmapData.maxVal - heatmapData.minVal) * 0.66)}
+                      </strong>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#dc2626]" /> High Concentration
+                      </span>
+                      <strong className="text-red-400">
+                        {Math.round(heatmapData.minVal + (heatmapData.maxVal - heatmapData.minVal) * 0.66) + 1} – {heatmapData.maxVal}
+                      </strong>
+                    </div>
                   </div>
                 </div>
               )}

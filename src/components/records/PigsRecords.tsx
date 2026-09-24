@@ -976,6 +976,19 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             <span>{t('records_word', 'Word (.DOC)')}</span>
           </button>
 
+          {/* Smart Import Spreadsheets Button */}
+          {currentRole !== 'agent' && (
+            <button
+              type="button"
+              onClick={() => setShowImportModal(true)}
+              className="px-3.5 py-1.5 rounded-xl border border-emerald-600 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              title="Import Swine Registry Spreadsheets (.xlsx, .xls, .csv)"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>{t('records_import_btn', 'Import Spreadsheets')}</span>
+            </button>
+          )}
+
           {/* Bulk Delete Button (Admin only, active when records selected) */}
           {currentRole === 'admin' && selectedRecordIds.size > 0 && (
             <button

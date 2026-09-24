@@ -209,22 +209,44 @@ export const SyncCenterModal: React.FC<SyncCenterModalProps> = ({
           )}
 
           {/* Testing Toggle: Simulate Offline Mode */}
-          <div className="p-4 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-between">
+          <div className={`p-4 rounded-xl border transition-all ${
+            isSimulatedOffline
+              ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-400/30'
+              : 'bg-slate-100 border-slate-200'
+          } flex flex-col sm:flex-row sm:items-center justify-between gap-3`}>
             <div className="space-y-0.5">
-              <div className="text-sm font-bold text-slate-800">{t('sync_simulate_offline_toggle')}</div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-slate-800">{t('sync_simulate_offline_toggle')}</span>
+                {isSimulatedOffline && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-amber-200 text-amber-900 border border-amber-300">
+                    Active
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-500">
                 Simulate zero-connectivity environment for testing offline forms, offline photo caching, and sync queue.
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={isSimulatedOffline}
-                onChange={toggleSimulateOffline}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
-            </label>
+            <div className="flex items-center gap-3 shrink-0">
+              {isSimulatedOffline && (
+                <button
+                  type="button"
+                  onClick={toggleSimulateOffline}
+                  className="px-3 py-1 rounded-lg text-xs font-bold bg-emerald-700 hover:bg-emerald-600 text-white shadow-xs transition cursor-pointer"
+                >
+                  Go Online Now
+                </button>
+              )}
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isSimulatedOffline}
+                  onChange={toggleSimulateOffline}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+              </label>
+            </div>
           </div>
 
           {/* Pending Queue List */}

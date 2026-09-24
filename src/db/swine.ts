@@ -252,6 +252,37 @@ export async function upsertSwineRecord(record: any): Promise<SwineRecord> {
   }
 }
 
+export async function batchUpsertSwineRecords(records: any[]): Promise<SwineRecord[]> {
+  if (!records || records.length === 0) return [];
+  try {
+    const dbRecords = records.map(mapSwineToDb);
+    const results: SwineRecord[] = [];
+    
+    // Process in batches of 50 to avoid parameter limit in postgres
+    const batchSize = 50;
+    for (let i = 0; i < dbRecords.length; i += batchSize) {
+      const batch = dbRecords.slice(i, i + batchSize);
+      for (const item of batch) {
+        const res = await db
+          .insert(swineRecords)
+          .values(item)
+          .onConflictDoUpdate({
+            target: swineRecords.id,
+            set: item,
+          })
+          .returning();
+        if (res && res[0]) {
+          results.push(mapDbToSwine(res[0]));
+        }
+      }
+    }
+    return results;
+  } catch (error) {
+    console.error('Database query failed for batchUpsertSwineRecords:', error);
+    throw new Error('Database batch upsert failed. Please check the backend connection.', { cause: error });
+  }
+}
+
 export async function deleteSwineRecordById(id: string): Promise<boolean> {
   try {
     await db.delete(swineRecords).where(eq(swineRecords.id, id));

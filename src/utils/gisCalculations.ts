@@ -1,6 +1,8 @@
 import { SwineRecord, Barangay, ASFZone } from '../types';
 import { HINUNANGAN_BARANGAYS, HinunanganBarangayGeo } from '../data/barangays';
 import { HINUNANGAN_BARANGAY_BOUNDARIES } from '../data/hinunanganBoundariesGeoJSON';
+import { scaleSequential } from 'd3-scale';
+import { interpolateRgb, interpolateRgbBasis } from 'd3-interpolate';
 
 export type HeatmapMode =
   | 'swine_density'
@@ -210,18 +212,21 @@ export function generateHeatmapPoints(
   return { points, maxVal, minVal };
 }
 
+// D3 sequential color scale interpolator for swine density heatmap
+const densityColorScale = scaleSequential(
+  interpolateRgbBasis(['#10b981', '#34d399', '#facc15', '#fb923c', '#dc2626'])
+).domain([0, 1]);
+
 /**
- * Get color gradient for heatmap intensity (0.0 to 1.0)
+ * Get color gradient for heatmap intensity (0.0 to 1.0) using d3-scale interpolation
  */
 export function getHeatmapColor(intensity: number, opacity: number = 0.5): string {
-  // Low (Teal/Emerald) -> Medium (Yellow/Orange) -> High (Crimson Red)
-  if (intensity < 0.25) {
-    return `rgba(16, 185, 129, ${opacity})`; // #10b981
-  } else if (intensity < 0.5) {
-    return `rgba(234, 179, 8, ${opacity})`; // #eab308
-  } else if (intensity < 0.75) {
-    return `rgba(249, 115, 22, ${opacity})`; // #f97316
-  } else {
-    return `rgba(220, 38, 38, ${opacity})`; // #dc2626
+  const clamped = Math.max(0, Math.min(1, intensity));
+  const rgbColor = densityColorScale(clamped);
+  // Convert rgb/hex to rgba string with specified opacity
+  if (rgbColor.startsWith('rgb(')) {
+    return rgbColor.replace('rgb(', 'rgba(').replace(')', `, ${opacity})`);
   }
+  // If hex or rgb, let's parse or return with opacity or fallback
+  return rgbColor;
 }

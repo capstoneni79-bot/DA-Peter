@@ -60,6 +60,7 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalRole, setAuthModalRole] = useState<UserRole>('admin');
   const [editingSwine, setEditingSwine] = useState<SwineRecord | null>(null);
+  const [pendingGisCoordinates, setPendingGisCoordinates] = useState<{ latitude: number; longitude: number; barangay?: string } | null>(null);
   const [certificateSwine, setCertificateSwine] = useState<SwineRecord | null>(null);
   const [preselectedTakeoffSwine, setPreselectedTakeoffSwine] = useState<SwineRecord | null>(null);
   const [gisSelectedBarangay, setGisSelectedBarangay] = useState<string | undefined>(undefined);
@@ -451,25 +452,27 @@ export default function App() {
             )}
 
             {activeTab === 'gis' && (
-              <div className="py-6 px-4 max-w-7xl mx-auto space-y-4">
-                <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
+              <div className="p-4 sm:p-6 w-full space-y-4">
+                <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-xs space-y-4">
                   <div>
-                    <h2 className="text-xl font-bold text-stone-900">
+                    <h2 className="text-xl font-extrabold text-stone-900 tracking-tight">
                       Hinunangan Municipal GIS Biosurveillance & Swine Map
                     </h2>
-                    <p className="text-xs text-stone-500 mt-0.5">
+                    <p className="text-xs text-stone-500 mt-1">
                       Satellite & topographical mapping of 40 Hinunangan barangays, ASF risk zones, pig farm density heatmap, and live GPS tracking.
                     </p>
                   </div>
-                  <button
-                    onClick={() => {
-                      setEditingSwine(null);
-                      setActiveTab('add_swine');
-                    }}
-                    className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition cursor-pointer shadow-sm"
-                  >
-                    + Register Swine with GPS
-                  </button>
+                  <div>
+                    <button
+                      onClick={() => {
+                        setEditingSwine(null);
+                        setActiveTab('add_swine');
+                      }}
+                      className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs px-4 py-2 rounded-xl transition cursor-pointer shadow-sm flex items-center gap-1.5"
+                    >
+                      + Register Swine with GPS
+                    </button>
+                  </div>
                 </div>
 
                 <GisMap
@@ -486,6 +489,11 @@ export default function App() {
                   targetSwineId={gisTargetSwineId}
                   onSelectSwine={handleEditSwine}
                   onViewSwineRecord={handleViewSwineRecord}
+                  onPickLocation={(lat, lng, closestBarangay) => {
+                    setPendingGisCoordinates({ latitude: lat, longitude: lng, barangay: closestBarangay });
+                    setEditingSwine(null);
+                    setActiveTab('add_swine');
+                  }}
                 />
               </div>
             )}
@@ -503,13 +511,16 @@ export default function App() {
                 barangays={barangays}
                 currentUser={currentUser}
                 initialData={editingSwine}
+                initialCoordinates={pendingGisCoordinates}
                 onSuccess={() => {
                   setEditingSwine(null);
+                  setPendingGisCoordinates(null);
                   refreshAllData();
                   setActiveTab('records');
                 }}
                 onCancel={() => {
                   setEditingSwine(null);
+                  setPendingGisCoordinates(null);
                   setActiveTab('records');
                 }}
                 onOpenBatchModal={() => setIsBatchModalOpen(true)}

@@ -19,6 +19,8 @@ import {
   Camera,
   Activity,
   CheckCircle2,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { SidebarTheme, UserAccount, UserRole } from '../../types';
 import { useOfflineStatus } from '../../hooks/useOfflineStatus';
@@ -51,7 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClose,
   onOpenLogin,
 }) => {
-  const { isOnline, isSimulatedOffline } = useOfflineStatus();
+  const { isOnline, isSimulatedOffline, toggleSimulateOffline, pendingQueueCount } = useOfflineStatus();
   const { language, setLanguage, t } = useLanguage();
 
   const [theme, setTheme] = useState<SidebarTheme>(() => storageService.getSidebarTheme());
@@ -704,8 +706,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="font-medium text-[11px] opacity-75 shrink-0"
             style={{ color: theme.iconColor || '#93c5fd' }}
           >
-            {t('common_synced')}
+            {pendingQueueCount > 0 ? `${pendingQueueCount} queued` : t('common_synced')}
           </span>
+        </div>
+
+        {/* Simulate Offline Mode Toggle */}
+        <div
+          className="p-2 rounded-xl border flex items-center justify-between gap-2"
+          style={{
+            backgroundColor: isSimulatedOffline ? 'rgba(245, 158, 11, 0.12)' : theme.hoverColor || '#0d1733',
+            borderColor: isSimulatedOffline ? 'rgba(245, 158, 11, 0.35)' : theme.sectionDividerColor || '#1e3a8a',
+          }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            {isSimulatedOffline ? (
+              <WifiOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            ) : (
+              <Wifi className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            )}
+            <div className="min-w-0">
+              <p
+                className="text-[11px] font-bold leading-none truncate"
+                style={{ color: isSimulatedOffline ? '#fbbf24' : theme.activeTextColor || '#ffffff' }}
+              >
+                {t('sync_simulate_offline_toggle', 'Simulate Offline')}
+              </p>
+              <p
+                className="text-[9.5px] opacity-75 leading-tight mt-0.5 truncate"
+                style={{ color: theme.menuTextColor || '#cbd5e1' }}
+              >
+                {isSimulatedOffline ? 'Offline Testing Active' : 'Normal Connectivity'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleSimulateOffline();
+            }}
+            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+              isSimulatedOffline ? 'bg-amber-500' : 'bg-stone-700'
+            }`}
+            title="Toggle simulated offline mode for field testing"
+            role="switch"
+            aria-checked={isSimulatedOffline}
+          >
+            <span
+              aria-hidden="true"
+              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                isSimulatedOffline ? 'translate-x-4' : 'translate-x-0'
+              }`}
+            />
+          </button>
         </div>
 
         {/* Sign Out Action */}

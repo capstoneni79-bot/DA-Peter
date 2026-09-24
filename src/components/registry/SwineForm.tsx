@@ -27,6 +27,7 @@ import {
   BookOpen,
   Lock,
   Building2,
+  Crosshair,
 } from 'lucide-react';
 import {
   Barangay,
@@ -82,6 +83,7 @@ interface SwineFormProps {
   barangays: Barangay[];
   currentUser: UserAccount | null;
   initialData?: SwineRecord | null;
+  initialCoordinates?: { latitude: number; longitude: number; barangay?: string } | null;
   onSuccess: (record: SwineRecord) => void;
   onCancel?: () => void;
   onOpenBatchModal: () => void;
@@ -100,13 +102,14 @@ export const SwineForm: React.FC<SwineFormProps> = ({
   barangays,
   currentUser,
   initialData,
+  initialCoordinates,
   onSuccess,
   onCancel,
   onOpenBatchModal,
   onViewOrdinance,
 }) => {
   // If user is focal person, restrict to their assigned barangay
-  const defaultBarangay = currentUser?.assignedBarangay || initialData?.barangay || barangays[0]?.name || 'Poblacion';
+  const defaultBarangay = initialCoordinates?.barangay || currentUser?.assignedBarangay || initialData?.barangay || barangays[0]?.name || 'Poblacion';
 
   // Dynamic Form Customization Schema loaded from shared storageService
   const [formSchema, setFormSchema] = useState<RegistryFormSchema>(() =>
@@ -228,8 +231,8 @@ export const SwineForm: React.FC<SwineFormProps> = ({
 
   // GIS Pen Coordinates & Setback Buffers
   const defaultBgObj = barangays.find(b => b.name === defaultBarangay) || barangays[0];
-  const [latitude, setLatitude] = useState<number>(initialData?.latitude || defaultBgObj?.latitude || 10.3969);
-  const [longitude, setLongitude] = useState<number>(initialData?.longitude || defaultBgObj?.longitude || 125.1999);
+  const [latitude, setLatitude] = useState<number>(initialCoordinates?.latitude || initialData?.latitude || defaultBgObj?.latitude || 10.3969);
+  const [longitude, setLongitude] = useState<number>(initialCoordinates?.longitude || initialData?.longitude || defaultBgObj?.longitude || 125.1999);
   const [showMapPicker, setShowMapPicker] = useState(true);
   const [allExistingSwine, setAllExistingSwine] = useState<SwineRecord[]>(() => storageService.getSwineRecords());
 
@@ -1451,6 +1454,32 @@ export const SwineForm: React.FC<SwineFormProps> = ({
                   <span>Snap to Brgy. {barangay} GPS</span>
                 </button>
               )}
+            </div>
+          </div>
+
+          {/* Manual Pin & GPS Coordinate Action Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-emerald-50/70 border border-emerald-200/80 px-3.5 py-2.5 rounded-xl">
+            <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+              <MapPin className="w-4 h-4 text-emerald-600" />
+              Manual Pin & GPS Geolocation Setup
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowMapPicker(true)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg shadow-xs flex items-center gap-1 transition cursor-pointer"
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                <span>Click Map to Drop Pin</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleGetLiveGps}
+                className="bg-white hover:bg-stone-100 text-stone-700 border border-stone-300 font-bold text-[11px] px-3 py-1.5 rounded-lg shadow-xs flex items-center gap-1 transition cursor-pointer"
+              >
+                <Crosshair className="w-3.5 h-3.5 text-emerald-600" />
+                <span>My Current GPS</span>
+              </button>
             </div>
           </div>
 

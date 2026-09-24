@@ -5,6 +5,7 @@ import {
   getAllSwineRecords,
   getSwineRecordById,
   upsertSwineRecord,
+  batchUpsertSwineRecords,
   deleteSwineRecordById,
   deleteSwineRecordsByIds,
 } from '../db/swine.ts';
@@ -508,6 +509,57 @@ export function createApp() {
 
   app.post('/api/swine-records/bulk-delete', handleBulkDeleteSwine);
   app.post('/api/swine/bulk-delete', handleBulkDeleteSwine);
+
+  // Batch Import Swine Records API
+  const handleBatchImportSwine = async (req: express.Request, res: express.Response) => {
+    const user = getUserSecurityContext(req);
+    if (user.isAgent) {
+      return res.status(403).json({ success: false, error: 'Access Denied: Agent accounts cannot import records.' });
+    }
+
+    const { records, fileName, duplicateHandling, newFieldsCreated } = req.body;
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({ success: false, error: 'No swine records provided for import.' });
+    }
+
+    try {
+      const savedRecords = await batchUpsertSwineRecords(records);
+
+      // Record audit history if system settings table is available
+      try {
+        const histKey = 'swine_import_audit_history';
+        const existingHist = (await getSystemSetting(histKey)) || [];
+        const newHistEntry = {
+          batchId: `BATCH-${Date.now()}`,
+          fileName: fileName || 'Import.xlsx',
+          importedBy: user.username || 'System Admin',
+          importedAt: new Date().toISOString(),
+          recordCount: savedRecords.length,
+          newFields: newFieldsCreated || [],
+          duplicatePolicy: duplicateHandling || 'update',
+        };
+        await setSystemSetting(histKey, [newHistEntry, ...(Array.isArray(existingHist) ? existingHist.slice(0, 30) : [])]);
+      } catch (histErr) {
+        console.warn('Import audit history recording notice:', histErr);
+      }
+
+      return res.status(200).json({
+        success: true,
+        count: savedRecords.length,
+        data: savedRecords,
+        message: `Successfully imported ${savedRecords.length} swine records.`,
+      });
+    } catch (err: any) {
+      console.error('Error in batch import swine API:', err);
+      return res.status(500).json({
+        success: false,
+        error: 'Database import failed. Please check the backend connection.',
+      });
+    }
+  };
+
+  app.post('/api/swine-records/import', handleBatchImportSwine);
+  app.post('/api/swine/import', handleBatchImportSwine);
 
   // =========================================================================
   // 3. FARMERS API (DATABASE-DERIVED)

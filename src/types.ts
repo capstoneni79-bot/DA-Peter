@@ -595,6 +595,9 @@ export interface RegistryFormField {
   id: string;
   fieldKey?: string;
   label: string;
+  labelEn?: string;
+  labelCeb?: string;
+  labelFil?: string;
   type: RegistryFieldType;
   placeholder?: string;
   helpText?: string;
@@ -609,6 +612,13 @@ export interface RegistryFormField {
   autoGenType?: AutoGenType; // Format/pattern type for autogeneration
   autoGenPattern?: string; // Custom template pattern (e.g. "HNG-[BRGY]-[YEAR]-[RAND4]" or "VET-[RAND6]")
   autoGenPrefix?: string; // Custom prefix e.g. "HNG-"
+  sortable?: boolean;
+  searchable?: boolean;
+  filterable?: boolean;
+  importable?: boolean;
+  exportable?: boolean;
+  printable?: boolean;
+  isArchived?: boolean;
 }
 
 export interface RegistryFormSection {
@@ -726,3 +736,74 @@ export interface OfflineQueueItem {
   data: unknown;
   timestamp: string;
 }
+
+// Smart Swine Registry Import & Column Mapping Types
+export type ImportMatchStatus = 'matched_core' | 'matched_custom' | 'new_field' | 'ignored' | 'manual_mapped';
+
+export interface ImportColumnMapping {
+  fileHeader: string;
+  normalizedHeader: string;
+  targetFieldKey: string;
+  targetFieldLabel: string;
+  matchStatus: ImportMatchStatus;
+  isNewField: boolean;
+  detectedDataType: RegistryFieldType;
+  detectedOptions?: string[];
+  sampleValues: string[];
+  labelEn: string;
+  labelCeb: string;
+  labelFil: string;
+  isRequired: boolean;
+  createField: boolean;
+  searchable?: boolean;
+  filterable?: boolean;
+  sortable?: boolean;
+  exportable?: boolean;
+  printable?: boolean;
+}
+
+export interface ImportRowValidationError {
+  row: number;
+  pigId?: string;
+  farmerName?: string;
+  barangay?: string;
+  field?: string;
+  value?: any;
+  message: string;
+  severity: 'error' | 'warning';
+}
+
+export interface ImportRowValidationResult {
+  rowNumber: number;
+  rawData: Record<string, any>;
+  mappedRecord: Partial<SwineRecord>;
+  errors: ImportRowValidationError[];
+  warnings: ImportRowValidationError[];
+  isValid: boolean;
+  isDuplicate: boolean;
+  existingRecordId?: string;
+}
+
+export interface SwineImportHistoryRecord {
+  id: string;
+  batchId: string;
+  fileName: string;
+  fileType: 'csv' | 'xlsx' | 'xls' | 'tsv' | 'api' | 'manual';
+  fileSize: number;
+  importedBy: string;
+  importedByRole?: string;
+  importedAt: string;
+  totalRows: number;
+  successfulCount: number;
+  failedCount: number;
+  updatedCount: number;
+  createdCount: number;
+  skippedCount: number;
+  newFieldsCreated: string[];
+  status: 'completed' | 'partial' | 'failed' | 'rolled_back';
+  duplicateHandling: 'update' | 'skip' | 'rename';
+  errorSummary?: { row: number; pigId?: string; error: string; field?: string }[];
+  recordIds: string[];
+  createdFieldKeys?: string[];
+}
+

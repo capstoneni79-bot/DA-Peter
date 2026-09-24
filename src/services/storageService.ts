@@ -178,60 +178,104 @@ export const storageService = {
   },
 
   async fetchSwineRecords(params?: { barangay?: string; search?: string; status?: string; readyToSell?: boolean; isArchived?: boolean; page?: number; perPage?: number }): Promise<{ records: SwineRecord[]; total: number }> {
-    const searchParams = new URLSearchParams();
-    if (params?.barangay && params.barangay !== 'all') {
-      searchParams.set('barangay', params.barangay);
+    if (this.isEffectiveOffline()) {
+      let records = this.getSwineRecords();
+      if (params?.barangay && params.barangay !== 'all') {
+        records = records.filter(r => (r.barangay || '').toLowerCase() === params.barangay!.toLowerCase());
+      }
+      if (params?.status && params.status !== 'all') {
+        records = records.filter(r => (r.status || '').toLowerCase() === params.status!.toLowerCase());
+      }
+      if (params?.readyToSell !== undefined) {
+        records = records.filter(r => Boolean(r.readyToSell || r.status === 'ready_to_sell') === params.readyToSell);
+      }
+      if (params?.isArchived !== undefined) {
+        records = records.filter(r => Boolean(r.isArchived) === params.isArchived);
+      }
+      if (params?.search) {
+        const q = params.search.toLowerCase();
+        records = records.filter(r =>
+          (r.pigIdTag || '').toLowerCase().includes(q) ||
+          (r.farmerName || '').toLowerCase().includes(q) ||
+          (r.barangay || '').toLowerCase().includes(q) ||
+          (r.breed || '').toLowerCase().includes(q)
+        );
+      }
+      return { records, total: records.length };
     }
-    if (params?.search) {
-      searchParams.set('search', params.search);
+
+    try {
+      const searchParams = new URLSearchParams();
+      if (params?.barangay && params.barangay !== 'all') {
+        searchParams.set('barangay', params.barangay);
+      }
+      if (params?.search) {
+        searchParams.set('search', params.search);
+      }
+      if (params?.status && params.status !== 'all') {
+        searchParams.set('status', params.status);
+      }
+      if (params?.readyToSell !== undefined) {
+        searchParams.set('readyToSell', String(params.readyToSell));
+      }
+      if (params?.isArchived !== undefined) {
+        searchParams.set('isArchived', String(params.isArchived));
+      }
+      if (params?.page) {
+        searchParams.set('page', String(params.page));
+      }
+      if (params?.perPage) {
+        searchParams.set('per_page', String(params.perPage));
+      }
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const user = this.getCurrentUser();
+      if (user) {
+        headers['x-user-role'] = user.role || 'focal';
+        headers['x-user-id'] = user.id || '';
+        headers['x-user-name'] = user.username || user.name || '';
+        if (user.assignedBarangay) headers['x-user-assigned-barangay'] = user.assignedBarangay;
+        if (user.barangay_id) headers['x-user-barangay-id'] = user.barangay_id;
+      }
+
+      const queryString = searchParams.toString();
+      const endpoint = `/api/swine-records${queryString ? `?${queryString}` : ''}`;
+
+      const res = await fetch(endpoint, { method: 'GET', headers });
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.success && Array.isArray(json.data)) {
+          const records: SwineRecord[] = json.data;
+          this.saveSwineRecords(records);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('swine_records_updated', { detail: records }));
+          }
+          return { records, total: json.total ?? records.length };
+        }
+      }
+    } catch (err) {
+      console.warn('Network fetch failed, serving from local cache:', err);
+    }
+
+    let local = this.getSwineRecords();
+    if (params?.barangay && params.barangay !== 'all') {
+      local = local.filter(r => (r.barangay || '').toLowerCase() === params.barangay!.toLowerCase());
     }
     if (params?.status && params.status !== 'all') {
-      searchParams.set('status', params.status);
+      local = local.filter(r => (r.status || '').toLowerCase() === params.status!.toLowerCase());
     }
     if (params?.readyToSell !== undefined) {
-      searchParams.set('readyToSell', String(params.readyToSell));
+      local = local.filter(r => Boolean(r.readyToSell || r.status === 'ready_to_sell') === params.readyToSell);
     }
-    if (params?.isArchived !== undefined) {
-      searchParams.set('isArchived', String(params.isArchived));
+    if (params?.search) {
+      const q = params.search.toLowerCase();
+      local = local.filter(r =>
+        (r.pigIdTag || '').toLowerCase().includes(q) ||
+        (r.farmerName || '').toLowerCase().includes(q) ||
+        (r.barangay || '').toLowerCase().includes(q)
+      );
     }
-    if (params?.page) {
-      searchParams.set('page', String(params.page));
-    }
-    if (params?.perPage) {
-      searchParams.set('per_page', String(params.perPage));
-    }
-
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const user = this.getCurrentUser();
-    if (user) {
-      headers['x-user-role'] = user.role || 'focal';
-      headers['x-user-id'] = user.id || '';
-      headers['x-user-name'] = user.username || user.name || '';
-      if (user.assignedBarangay) headers['x-user-assigned-barangay'] = user.assignedBarangay;
-      if (user.barangay_id) headers['x-user-barangay-id'] = user.barangay_id;
-    }
-
-    const queryString = searchParams.toString();
-    const endpoint = `/api/swine-records${queryString ? `?${queryString}` : ''}`;
-
-    const res = await fetch(endpoint, { method: 'GET', headers });
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => null);
-      throw new Error(errJson?.error || 'Unable to connect to the Swine Registry database. Please check the backend connection.');
-    }
-
-    const json = await res.json();
-    if (!json.success) {
-      throw new Error(json.error || 'Failed to retrieve swine records from database.');
-    }
-
-    const records: SwineRecord[] = json.data || [];
-    this.saveSwineRecords(records);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('swine_records_updated', { detail: records }));
-    }
-
-    return { records, total: json.total ?? records.length };
+    return { records: local, total: local.length };
   },
 
   saveSwineRecords(records: SwineRecord[]): void {

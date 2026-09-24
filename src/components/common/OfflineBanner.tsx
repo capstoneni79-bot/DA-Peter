@@ -9,7 +9,7 @@ interface OfflineBannerProps {
 }
 
 export const OfflineBanner: React.FC<OfflineBannerProps> = ({ onSyncComplete }) => {
-  const { isOnline, isSimulatedOffline, pendingQueueCount, forceSync } = useOfflineStatus();
+  const { isOnline, isSimulatedOffline, pendingQueueCount, forceSync, toggleSimulateOffline } = useOfflineStatus();
   const { t } = useLanguage();
   const [syncing, setSyncing] = useState(false);
   const [syncSuccess, setSyncSuccess] = useState<string | null>(null);
@@ -69,7 +69,19 @@ export const OfflineBanner: React.FC<OfflineBannerProps> = ({ onSyncComplete }) 
           )}
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          {isSimulatedOffline && (
+            <button
+              type="button"
+              onClick={toggleSimulateOffline}
+              className="bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded-md text-xs flex items-center gap-1.5 transition shadow-sm border border-emerald-400/40 cursor-pointer animate-pulse"
+              title="Exit simulated offline test mode and resume live database connections"
+            >
+              <Wifi className="w-3.5 h-3.5" />
+              <span>Go Online (End Simulation)</span>
+            </button>
+          )}
+
           {pendingQueueCount > 0 && (
             <button
               onClick={() => setIsSyncModalOpen(true)}
