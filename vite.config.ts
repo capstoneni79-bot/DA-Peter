@@ -14,7 +14,26 @@ export default defineConfig(() => {
         workbox: {
           maximumFileSizeToCacheInBytes: 15 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json,geojson}'],
+          skipWaiting: true,
+          clientsClaim: true,
+          navigateFallback: '/index.html',
+          navigateFallbackDenylist: [/^\/api\//],
           runtimeCaching: [
+            {
+              urlPattern: /^\/api\//i,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'api-runtime-cache',
+                networkTimeoutSeconds: 8,
+                expiration: {
+                  maxEntries: 100,
+                  maxAgeSeconds: 60 * 15, // 15 minutes max
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',

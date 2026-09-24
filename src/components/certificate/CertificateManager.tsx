@@ -808,6 +808,14 @@ export const CertificateManager: React.FC<CertificateManagerProps> = ({
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
+        onclone: clonedDoc => {
+          const styleTags = clonedDoc.querySelectorAll('style');
+          styleTags.forEach(st => {
+            if (st.innerHTML && st.innerHTML.includes('oklch')) {
+              st.innerHTML = sanitizeOklchColors(st.innerHTML);
+            }
+          });
+        },
       });
 
       const imgData = canvas.toDataURL('image/jpeg', 0.95);
