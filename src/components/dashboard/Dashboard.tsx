@@ -48,6 +48,7 @@ import {
 } from 'lucide-react';
 import { Barangay, SwineRecord, UserAccount, UserRole } from '../../types';
 import { getBarangayASFZone, shouldShowASFWarning } from '../../utils/swineRegistryLogic';
+import { useLanguage } from '../../context/LanguageContext';
 
 interface DashboardProps {
   swineList: SwineRecord[];
@@ -68,6 +69,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onAddSwine,
   onOpenBatchModal,
 }) => {
+  const { t, getSwineTypeLabel, getFarmScaleLabel, getAsfZoneLabel } = useLanguage();
   const [isFarmRegModalOpen, setIsFarmRegModalOpen] = useState<boolean>(false);
   const [selectedBgFilter, setSelectedBgFilter] = useState<string>(
     currentRole === 'focal' && currentUser?.assignedBarangay ? currentUser.assignedBarangay : 'all'
@@ -272,24 +274,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-              Official Livestock Registry
+              {t('official_seal_republic', 'Official Livestock Registry')}
             </span>
             <span className="text-slate-400">•</span>
-            <span className="text-xs text-slate-500 font-medium">Municipality of Hinunangan • DA-MAO</span>
+            <span className="text-xs text-slate-500 font-medium">{t('header_location', 'Municipality of Hinunangan • DA-MAO')}</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mt-1.5">
             {currentRole === 'focal'
               ? `Barangay ${currentUser?.assignedBarangay || 'Focal'} Livestock Registry`
               : currentRole === 'agent'
               ? 'Market Ready Swine Catalog & Trader Dashboard'
-              : 'Hinunangan Swine Registry & Biosurveillance'}
+              : t('app_title', 'Hinunangan Swine Registry & Biosurveillance')}
           </h2>
           <p className="text-xs text-slate-600 mt-1 max-w-2xl">
             {currentRole === 'focal'
               ? `Real-time monitoring of hog raisers, biosecurity compliance, and transit clearances for Brgy. ${currentUser?.assignedBarangay}.`
               : currentRole === 'agent'
               ? 'Real-time verified inventory of market-ready hogs from registered Hinunangan farmers.'
-              : 'Real-time municipal-wide monitoring across 40 barangays with offline synchronization, GIS mapping, and clearance issuance.'}
+              : t('app_tagline', 'Real-time municipal-wide monitoring across 40 barangays with offline synchronization, GIS mapping, and clearance issuance.')}
           </p>
         </div>
 
@@ -298,13 +300,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
           {currentRole === 'admin' && (
             <div className="flex items-center bg-white px-3 py-2 rounded-xl border border-slate-200/90 shadow-2xs text-xs">
               <Filter className="w-3.5 h-3.5 text-emerald-700 mr-2 shrink-0" />
-              <span className="font-bold text-slate-600 mr-2 shrink-0">Analytics Scope:</span>
+              <span className="font-bold text-slate-600 mr-2 shrink-0">{t('records_filter_barangay', 'Barangay')}:</span>
               <select
                 value={selectedBgFilter}
                 onChange={e => setSelectedBgFilter(e.target.value)}
                 className="bg-transparent border-0 text-xs font-black text-slate-900 focus:ring-0 cursor-pointer outline-none"
               >
-                <option value="all">All 40 Hinunangan Barangays</option>
+                <option value="all">{t('records_all_barangays', 'All 40 Hinunangan Barangays')}</option>
                 {barangays.map(b => (
                   <option key={b.id} value={b.name}>
                     Brgy. {b.name}
@@ -321,7 +323,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               className="bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs px-3.5 py-2 rounded-xl flex items-center gap-1.5 border border-slate-200/90 shadow-2xs transition cursor-pointer active:scale-[0.98]"
             >
               <Building2 className="w-4 h-4 text-emerald-700" />
-              <span>Farm Registration</span>
+              <span>{t('nav_farmers', 'Farm Registration')}</span>
             </button>
           )}
 
@@ -331,7 +333,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             className="bg-emerald-800 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer active:scale-[0.98]"
           >
             <MapPin className="w-4 h-4 text-emerald-200" />
-            <span>View GIS Map</span>
+            <span>{t('nav_gis_map', 'View GIS Map')}</span>
           </button>
         </div>
       </div>
@@ -341,7 +343,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Metric 1: Total Swine */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Registered Swine</span>
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{t('stat_total_swine', 'Registered Swine')}</span>
             <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200/60 flex items-center justify-center text-emerald-700">
               <Layers className="w-4 h-4" />
             </div>
@@ -349,7 +351,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="mt-4">
             <div className="text-3xl font-black text-slate-900 tracking-tight">{totalSwine}</div>
             <div className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1 mt-1">
-              <TrendingUp className="w-3 h-3" /> Heads actively tracked
+              <TrendingUp className="w-3 h-3" /> {t('stat_heads_active', 'Heads actively tracked')}
             </div>
           </div>
         </div>
@@ -357,7 +359,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Metric 2: Incoming Ready to Sell */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Incoming to Sell</span>
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{t('stat_ready_to_sell', 'Incoming to Sell')}</span>
             <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-200/60 flex items-center justify-center text-amber-700">
               <Sparkles className="w-4 h-4" />
             </div>
@@ -365,7 +367,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="mt-4">
             <div className="text-3xl font-black text-slate-900 tracking-tight">{readyToSellCount}</div>
             <div className="text-[11px] text-amber-700 font-semibold flex items-center gap-1 mt-1">
-              <span>Ready for market harvest</span>
+              <span>{t('records_ready_to_sell', 'Ready for market harvest')}</span>
             </div>
           </div>
         </div>
@@ -373,7 +375,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Metric 3: Farmers / Raisers */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Registered Raisers</span>
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{t('stat_registered_farmers', 'Registered Raisers')}</span>
             <div className="w-8 h-8 rounded-xl bg-sky-50 border border-sky-200/60 flex items-center justify-center text-sky-700">
               <Users className="w-4 h-4" />
             </div>
@@ -381,7 +383,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="mt-4">
             <div className="text-3xl font-black text-slate-900 tracking-tight">{uniqueFarmers}</div>
             <div className="text-[11px] text-sky-700 font-semibold mt-1">
-              Verified hog raisers
+              {t('stat_verified_farmers', 'Verified hog raisers')}
             </div>
           </div>
         </div>
@@ -389,7 +391,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Metric 4: Est. Ready Market Value */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Ready Market Value</span>
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{t('stat_market_value', 'Ready Market Value')}</span>
             <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-200/60 flex items-center justify-center text-indigo-700">
               <DollarSign className="w-4 h-4" />
             </div>
@@ -399,7 +401,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               ₱{totalEstimatedPrice.toLocaleString()}
             </div>
             <div className="text-[11px] text-slate-500 font-medium mt-1">
-              Based on live weight
+              {t('stat_based_on_live_weight', 'Based on live weight')}
             </div>
           </div>
         </div>
@@ -407,7 +409,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Metric 5: ASF Biosecurity Safety */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-xs transition flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">ASF Compliance</span>
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{t('stat_asf_compliance', 'ASF Compliance')}</span>
             <div className="w-8 h-8 rounded-xl bg-teal-50 border border-teal-200/60 flex items-center justify-center text-teal-700">
               <ShieldCheck className="w-4 h-4" />
             </div>
@@ -415,7 +417,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="mt-4">
             <div className="text-3xl font-black text-slate-900 tracking-tight">{bioComplianceRate}%</div>
             <div className="text-[11px] text-teal-700 font-semibold mt-1">
-              Meets DA protocols
+              {t('stat_meets_protocols', 'Meets DA protocols')}
             </div>
           </div>
         </div>
@@ -427,7 +429,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="w-6 h-6 rounded-lg bg-emerald-50 border border-emerald-200/60 flex items-center justify-center text-emerald-700">
             <Layers className="w-3.5 h-3.5" />
           </div>
-          <span className="font-bold text-slate-900 text-xs">Central Registry Live Status</span>
+          <span className="font-bold text-slate-900 text-xs">{t('status_synced', 'Central Registry Live Status')}</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-1 sm:gap-2">
@@ -436,7 +438,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onClick={() => onNavigateTab('records')}
             className="px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition flex items-center gap-1.5 cursor-pointer text-xs"
           >
-            <span>Total Registered:</span>
+            <span>{t('records_total_registered', 'Total Registered')}:</span>
             <span className="font-black text-slate-900">{totalSwine}</span>
           </button>
           <span className="text-slate-300">•</span>
@@ -445,7 +447,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onClick={() => onNavigateTab('records')}
             className="px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-emerald-800 transition flex items-center gap-1.5 cursor-pointer text-xs"
           >
-            <span>Ready for Sale:</span>
+            <span>{t('records_ready_for_sale', 'Ready for Sale')}:</span>
             <span className="font-black text-emerald-700">{readyToSellCount}</span>
           </button>
           <span className="text-slate-300">•</span>
@@ -454,7 +456,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onClick={() => onNavigateTab('records')}
             className="px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition flex items-center gap-1.5 cursor-pointer text-xs"
           >
-            <span>Sold:</span>
+            <span>{t('records_status_sold', 'Sold')}:</span>
             <span className="font-black text-slate-800">{soldCount}</span>
           </button>
           <span className="text-slate-300">•</span>
@@ -463,7 +465,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onClick={() => onNavigateTab('records')}
             className="px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition flex items-center gap-1.5 cursor-pointer text-xs"
           >
-            <span>Archived:</span>
+            <span>{t('records_archived', 'Archived')}:</span>
             <span className="font-black text-slate-500">{archivedCount}</span>
           </button>
           <span className="text-slate-300">•</span>
@@ -472,7 +474,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onClick={() => onNavigateTab('records')}
             className="px-2.5 py-1 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition flex items-center gap-1.5 cursor-pointer text-xs"
           >
-            <span>Breeding Boars:</span>
+            <span>{t('records_swine_type_boar', 'Breeding Boars')}:</span>
             <span className="font-black text-amber-700">{breedingBoarsCount}</span>
           </button>
 
@@ -486,7 +488,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 title="Breeding Boars in RED or PINK ASF Zones require biosecurity compliance"
               >
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                <span>ASF Alerts:</span>
+                <span>{t('records_asf_alerts', 'ASF Alerts')}:</span>
                 <span>{asfWarningCount}</span>
               </button>
             </>

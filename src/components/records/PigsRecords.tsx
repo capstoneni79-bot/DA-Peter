@@ -35,6 +35,8 @@ import {
   Phone,
   User,
   Tag,
+  RotateCw,
+  Database,
 } from 'lucide-react';
 import {
   Barangay,
@@ -60,10 +62,10 @@ import {
   calculateSwineAge,
   getEstimatedWeightRange,
   classifyFarmScale,
-  getFarmScaleLabel,
   getBarangayASFZone,
   shouldShowASFWarning,
 } from '../../utils/swineRegistryLogic';
+import { useLanguage } from '../../context/LanguageContext';
 
 /**
  * Highlights text segments that match the search query in real time
@@ -123,6 +125,8 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   onViewOnMap,
   initialViewingRecordId,
 }) => {
+  const { t, getSwineTypeLabel, getFarmScaleLabel, getAsfZoneLabel, getStatusLabel } = useLanguage();
+
   // Schema configuration state
   const [formSchema, setFormSchema] = useState<RegistryFormSchema>(() =>
     storageService.getRegistryFormSchema()
@@ -161,6 +165,44 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState<boolean>(false);
   const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
   const [bulkActionNotice, setBulkActionNotice] = useState<string>('');
+
+  // Database Connection & Query States
+  const [isLoadingDb, setIsLoadingDb] = useState<boolean>(false);
+  const [isRefreshingDb, setIsRefreshingDb] = useState<boolean>(false);
+  const [dbError, setDbError] = useState<string | null>(null);
+  const [refreshNotice, setRefreshNotice] = useState<string>('');
+
+  const handleFetchFromDatabase = async (isManual = false) => {
+    if (isManual) {
+      setIsRefreshingDb(true);
+      setRefreshNotice('Fetching latest records...');
+    } else {
+      setIsLoadingDb(true);
+    }
+    setDbError(null);
+
+    try {
+      const { total } = await storageService.fetchSwineRecords({
+        barangay: currentRole === 'focal' && currentUser?.assignedBarangay ? currentUser.assignedBarangay : undefined,
+      });
+      onRefresh();
+      if (isManual) {
+        setRefreshNotice(`${total} records loaded`);
+        setTimeout(() => setRefreshNotice(''), 3500);
+      }
+    } catch (err: any) {
+      console.error('Failed to load swine records from database:', err);
+      setDbError(err.message || 'Unable to load Swine Records. The system could not retrieve records from the database.');
+    } finally {
+      setIsLoadingDb(false);
+      setIsRefreshingDb(false);
+    }
+  };
+
+  // Automatically fetch records directly from the database on component mount
+  useEffect(() => {
+    handleFetchFromDatabase(false);
+  }, [currentRole, currentUser?.assignedBarangay]);
 
   // Keep selectedRecordIds synchronized with swineList
   useEffect(() => {
@@ -784,9 +826,9 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-stone-200 shadow-xs">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold text-stone-900">Swine Records Registry</h2>
+            <h2 className="text-xl font-bold text-stone-900">{t('records_title', 'Swine Records Registry')}</h2>
             <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-0.5 rounded-full">
-              {totalRecords} Heads
+              {t('records_heads_count', { count: totalRecords }, `${totalRecords} Heads`)}
             </span>
             {currentRole === 'focal' && currentUser?.assignedBarangay && (
               <span className="bg-stone-100 text-stone-700 text-xs font-semibold px-2 py-0.5 rounded-full border border-stone-200">
@@ -795,11 +837,23 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             )}
           </div>
           <p className="text-xs text-stone-500 mt-1">
-            Centralized Hinunangan swine registry with immutable Pig ID tags, automated age & weight recalculations, and dynamic biosecurity tracking.
+            {t('records_subtitle', 'Centralized Hinunangan swine registry with immutable Pig ID tags, automated age & weight recalculations, and dynamic biosecurity tracking.')}
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Refresh Records Button (Real database query) */}
+          <button
+            type="button"
+            onClick={() => handleFetchFromDatabase(true)}
+            disabled={isRefreshingDb || isLoadingDb}
+            className="px-3.5 py-1.5 rounded-xl border border-stone-300 hover:bg-stone-100 bg-white text-stone-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs disabled:opacity-50"
+            title="Fetch latest records directly from database"
+          >
+            <RotateCw className={`w-3.5 h-3.5 text-emerald-700 ${isRefreshingDb ? 'animate-spin' : ''}`} />
+            <span>{isRefreshingDb ? t('loading_records', 'Loading Records...') : `↻ ${t('records_refresh', 'Refresh Records')}`}</span>
+          </button>
+
           {/* Quick Ready to Sell Toggle Button */}
           <button
             type="button"
@@ -812,7 +866,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             title="Filter Ready for Sale Heads"
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-            <span>Ready to Sell</span>
+            <span>{t('records_ready_to_sell', 'Ready to Sell')}</span>
           </button>
 
           {/* Column Visibility Selector Toggle */}
@@ -827,7 +881,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             title="Configure table columns"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-700" />
-            <span>Columns</span>
+            <span>{t('records_columns', 'Columns')}</span>
           </button>
 
           {/* Import Records */}
@@ -839,7 +893,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               title="Import Swine Records from Device or Backend"
             >
               <Upload className="w-3.5 h-3.5 text-purple-700" />
-              <span>Import</span>
+              <span>{t('records_import', 'Import')}</span>
             </button>
           )}
 
@@ -852,7 +906,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               title="Print Swine Records Table"
             >
               <Printer className="w-3.5 h-3.5 text-stone-600" />
-              <span>Print</span>
+              <span>{t('records_print', 'Print')}</span>
               <ChevronDown className={`w-3 h-3 text-stone-400 transition-transform ${showPrintMenu ? 'rotate-180' : ''}`} />
             </button>
 
@@ -869,9 +923,9 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 >
                   <Printer className="w-4 h-4 text-emerald-700 shrink-0" />
                   <div>
-                    <div className="font-bold">Print Complete Table</div>
+                    <div className="font-bold">{t('records_print_complete', 'Print Complete Table')}</div>
                     <div className="text-[10px] text-stone-500 font-normal">
-                      Print all {activeFields.length} active columns
+                      {t('records_print_complete_desc', `Print all ${activeFields.length} active columns`)}
                     </div>
                   </div>
                 </button>
@@ -892,9 +946,9 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 >
                   <SlidersHorizontal className="w-4 h-4 text-blue-600 shrink-0" />
                   <div>
-                    <div className="font-bold">Select Columns to Print</div>
+                    <div className="font-bold">{t('records_print_custom', 'Select Columns to Print')}</div>
                     <div className="text-[10px] text-stone-500 font-normal">
-                      Choose custom column selection
+                      {t('records_print_custom_desc', 'Choose custom column selection')}
                     </div>
                   </div>
                 </button>
@@ -909,7 +963,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             title="Export Records to Excel CSV"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
-            <span>Excel (.CSV)</span>
+            <span>{t('records_excel', 'Excel (.CSV)')}</span>
           </button>
 
           {/* Export to Word */}
@@ -919,7 +973,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             title="Export Records to Microsoft Word Document"
           >
             <FileText className="w-3.5 h-3.5 text-blue-700" />
-            <span>Word (.DOC)</span>
+            <span>{t('records_word', 'Word (.DOC)')}</span>
           </button>
 
           {/* Bulk Delete Button (Admin only, active when records selected) */}
@@ -931,7 +985,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               title={`Bulk delete ${selectedRecordIds.size} selected records`}
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Bulk Delete ({selectedRecordIds.size})</span>
+              <span>{t('btn_bulk_delete', { count: selectedRecordIds.size }, `Bulk Delete (${selectedRecordIds.size})`)}</span>
             </button>
           )}
 
@@ -942,7 +996,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               className="px-4 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>Register Swine</span>
+              <span>{t('records_register_swine', 'Register Swine')}</span>
             </button>
           )}
         </div>
@@ -955,10 +1009,10 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             <div>
               <h3 className="font-bold text-xs text-stone-900 flex items-center gap-1.5">
                 <Columns className="w-4 h-4 text-emerald-700" />
-                Customize Swine Records Table Columns
+                {t('records_customize_cols_title', 'Customize Swine Records Table Columns')}
               </h3>
               <p className="text-[11px] text-stone-500">
-                Toggle column visibility to personalize your records view.
+                {t('records_customize_cols_desc', 'Toggle column visibility to personalize your records view.')}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -967,7 +1021,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 onClick={resetColumnsToDefault}
                 className="text-[11px] text-emerald-700 font-semibold hover:underline cursor-pointer"
               >
-                Show All
+                {t('records_show_all', 'Show All')}
               </button>
               <button
                 type="button"
@@ -1004,6 +1058,42 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               );
             })}
           </div>
+        </div>
+      )}
+
+      {refreshNotice && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold rounded-2xl flex items-center justify-between shadow-2xs animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+            <span>{refreshNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRefreshNotice('')}
+            className="text-emerald-700 hover:text-emerald-950 text-xs cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {dbError && (
+        <div className="p-4 bg-rose-50 border border-rose-300 text-rose-900 rounded-2xl flex items-center justify-between shadow-2xs animate-fadeIn">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-rose-700 shrink-0" />
+            <div>
+              <p className="font-bold text-xs text-rose-950">Unable to load Swine Records.</p>
+              <p className="text-[11px] text-rose-700 font-medium">The system could not retrieve records from the database. {dbError}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleFetchFromDatabase(true)}
+            className="px-3 py-1.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs shrink-0 shadow-2xs transition cursor-pointer flex items-center gap-1.5 ml-4"
+          >
+            <RotateCw className="w-3.5 h-3.5" />
+            <span>Retry</span>
+          </button>
         </div>
       )}
 
@@ -1044,10 +1134,10 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 }}
                 placeholder={
                   searchScope === 'tag'
-                    ? 'Type Tag ID (e.g. HIN-2026-..., Ear Tag No)...'
+                    ? t('records_search_placeholder', 'Real-time search by Tag ID or Owner Name...')
                     : searchScope === 'owner'
-                    ? 'Type Owner Name, Raiser, Farm, or RSBSA ID...'
-                    : 'Real-time search by Tag ID or Owner Name (e.g. HIN-2026, Juan)...'
+                    ? t('records_search_placeholder', 'Real-time search by Tag ID or Owner Name...')
+                    : t('records_search_placeholder', 'Real-time search by Tag ID or Owner Name...')
                 }
                 className={`w-full pl-10 pr-28 py-2.5 rounded-xl border text-xs font-medium transition focus:outline-hidden ${
                   searchTerm
@@ -1086,7 +1176,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
             {/* Dedicated Search Scope Selector */}
             <div className="flex items-center bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs shrink-0 self-start md:self-auto gap-1">
               <span className="text-[10px] font-bold uppercase text-stone-400 px-1.5 tracking-wider hidden lg:inline">
-                Scope:
+                {t('records_scope', 'Scope')}:
               </span>
               <button
                 type="button"
@@ -1097,7 +1187,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                     : 'text-stone-600 hover:text-stone-900'
                 }`}
               >
-                All Fields
+                {t('records_all_fields', 'All Fields')}
               </button>
               <button
                 type="button"
@@ -1109,7 +1199,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 }`}
               >
                 <Tag className="w-3 h-3" />
-                <span>Tag ID</span>
+                <span>{t('records_tag_id', 'Tag ID')}</span>
               </button>
               <button
                 type="button"
@@ -1121,7 +1211,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 }`}
               >
                 <User className="w-3 h-3" />
-                <span>Owner Name</span>
+                <span>{t('records_owner_name', 'Owner Name')}</span>
               </button>
             </div>
           </div>
@@ -1148,7 +1238,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 onClick={() => setSearchTerm('')}
                 className="text-[11px] text-emerald-800 hover:text-emerald-950 font-semibold cursor-pointer underline"
               >
-                Reset Search (Esc)
+                {t('common_reset', 'Reset')} (Esc)
               </button>
             </div>
           )}
@@ -1164,7 +1254,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               onChange={e => setSelectedBarangay(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden disabled:bg-stone-100"
             >
-              <option value="all">All Barangays ({barangays.length})</option>
+              <option value="all">{t('records_all_barangays', 'All Barangays')} ({barangays.length})</option>
               {barangays.map(b => (
                 <option key={b.id} value={b.name}>
                   Brgy. {b.name}
@@ -1180,12 +1270,12 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               onChange={e => setSwineTypeFilter(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
             >
-              <option value="all">All Swine Types</option>
-              <option value="boar">Breeding Boar (Barako)</option>
-              <option value="sow">Breeding Sow (Inahin)</option>
-              <option value="piglet">Piglet (Weanling)</option>
-              <option value="grower">Grower (Bakil)</option>
-              <option value="finisher">Finisher / Fattener</option>
+              <option value="all">{t('records_all_swine_types', 'All Swine Types')}</option>
+              <option value="boar">{t('swine_type_breeding_boar', 'Breeding Boar')}</option>
+              <option value="sow">{t('swine_type_breeding_sow', 'Breeding Sow')}</option>
+              <option value="piglet">{t('swine_type_piglet', 'Piglet')}</option>
+              <option value="grower">{t('swine_type_grower', 'Grower')}</option>
+              <option value="finisher">{t('swine_type_finisher', 'Finisher')}</option>
             </select>
           </div>
 
@@ -1196,10 +1286,10 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               onChange={e => setFarmScaleFilter(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
             >
-              <option value="all">All Farm Scales</option>
-              <option value="BACKYARD">Backyard (1–10 heads)</option>
-              <option value="COMMERCIAL_MEDIUM">Comm. Medium (11–50 heads)</option>
-              <option value="COMMERCIAL_LARGE">Comm. Large (51+ heads)</option>
+              <option value="all">{t('records_all_farm_scales', 'All Farm Scales')}</option>
+              <option value="BACKYARD">{t('scale_backyard', 'Backyard')}</option>
+              <option value="COMMERCIAL_MEDIUM">{t('scale_commercial_medium', 'Commercial Medium')}</option>
+              <option value="COMMERCIAL_LARGE">{t('scale_commercial_large', 'Commercial Large')}</option>
             </select>
           </div>
 
@@ -1210,11 +1300,11 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               onChange={e => setAsfZoneFilter(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
             >
-              <option value="all">All ASF Zones</option>
-              <option value="RED">RED (Infected / High Risk)</option>
-              <option value="PINK">PINK (Buffer Zone)</option>
-              <option value="YELLOW">YELLOW (Surveillance)</option>
-              <option value="GREEN">GREEN (Free / Safe Zone)</option>
+              <option value="all">{t('records_all_asf_zones', 'All ASF Zones')}</option>
+              <option value="RED">{t('zone_red', 'RED Zone (Infected)')}</option>
+              <option value="PINK">{t('zone_pink', 'PINK Zone (Buffer)')}</option>
+              <option value="YELLOW">{t('zone_yellow', 'YELLOW Zone (Surveillance)')}</option>
+              <option value="GREEN">{t('zone_dark_green', 'GREEN Zone (Free)')}</option>
             </select>
           </div>
         </div>
@@ -1228,12 +1318,12 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               onChange={e => setStatusFilter(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
             >
-              <option value="all">All Statuses</option>
-              <option value="active">Active / Growing</option>
-              <option value="ready">Ready for Sale</option>
-              <option value="sold">Officially Sold</option>
-              <option value="quarantined">Quarantined</option>
-              <option value="sick">Sick / Under Treatment</option>
+              <option value="all">{t('records_all_statuses', 'All Statuses')}</option>
+              <option value="active">{t('status_active', 'Active')}</option>
+              <option value="ready">{t('records_ready_to_sell', 'Ready for Sale')}</option>
+              <option value="sold">{t('status_sold', 'Sold')}</option>
+              <option value="quarantined">{t('status_quarantined', 'Quarantined')}</option>
+              <option value="sick">{t('status_suspected', 'Suspected / Sick')}</option>
             </select>
           </div>
 
@@ -1244,9 +1334,9 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               onChange={e => setBiosecurityFilter(e.target.value as any)}
               className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
             >
-              <option value="all">Biosecurity: All</option>
-              <option value="warning">⚠ Warning Only (Boar in Red/Pink)</option>
-              <option value="no_warning">No Warning (Safe)</option>
+              <option value="all">{t('records_biosecurity_all', 'Biosecurity: All')}</option>
+              <option value="warning">⚠ {t('records_biosecurity_warning', 'Biosecurity Warning')}</option>
+              <option value="no_warning">{t('records_biosecurity_safe', 'Biosecurity Safe')}</option>
             </select>
           </div>
 
@@ -1257,18 +1347,18 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               onChange={e => setSortFieldKey(e.target.value)}
               className="flex-1 px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
             >
-              <option value="registeredAt">Sort: Date Registered</option>
-              <option value="pigIdTag">Sort: Pig ID Tag</option>
-              <option value="birthDate">Sort: Birth Date</option>
-              <option value="age">Sort: Calculated Age</option>
-              <option value="estimatedWeight">Sort: Estimated Weight</option>
-              <option value="actualWeight">Sort: Actual Weight</option>
-              <option value="farmerName">Sort: Farmer Name</option>
-              <option value="barangay">Sort: Barangay</option>
-              <option value="swineType">Sort: Swine Type</option>
-              <option value="farmScale">Sort: Farm Scale</option>
-              <option value="asfZone">Sort: ASF Zone</option>
-              <option value="status">Sort: Status</option>
+              <option value="registeredAt">{t('records_sort_date', 'Sort: Date Registered')}</option>
+              <option value="pigIdTag">{t('records_sort_pig_id', 'Sort: Pig ID Tag')}</option>
+              <option value="farmerName">{t('records_sort_farmer', 'Sort: Farmer Name')}</option>
+              <option value="birthDate">Sort: {t('form_birth_date', 'Birth Date')}</option>
+              <option value="age">{t('records_sort_age', 'Sort: Age')}</option>
+              <option value="estimatedWeight">Sort: {t('records_th_est_weight', 'Est. Weight')}</option>
+              <option value="actualWeight">Sort: {t('records_th_actual_weight', 'Actual Weight')}</option>
+              <option value="barangay">Sort: {t('records_th_barangay', 'Barangay')}</option>
+              <option value="swineType">Sort: {t('records_th_swine_type', 'Swine Type')}</option>
+              <option value="farmScale">Sort: {t('records_th_farm_scale', 'Farm Scale')}</option>
+              <option value="asfZone">Sort: {t('records_th_asf_zone', 'ASF Zone')}</option>
+              <option value="status">Sort: {t('records_th_status', 'Status')}</option>
             </select>
             <button
               onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
@@ -1289,10 +1379,10 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
               }}
               className="w-full px-3 py-2 rounded-xl border border-stone-300 bg-white font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
             >
-              <option value={10}>10 records / page</option>
-              <option value={25}>25 records / page</option>
-              <option value={50}>50 records / page</option>
-              <option value={100}>100 records / page</option>
+              <option value={10}>10 / {t('pagination_rows_per_page', 'page')}</option>
+              <option value={25}>25 / {t('pagination_rows_per_page', 'page')}</option>
+              <option value={50}>50 / {t('pagination_rows_per_page', 'page')}</option>
+              <option value={100}>100 / {t('pagination_rows_per_page', 'page')}</option>
             </select>
           </div>
 
@@ -1305,7 +1395,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 onChange={e => setShowArchived(e.target.checked)}
                 className="w-3.5 h-3.5 text-emerald-600 rounded border-stone-300"
               />
-              <span>Archived Records</span>
+              <span>{t('records_archived', 'Archived Records')}</span>
             </label>
           </div>
         </div>
@@ -1314,7 +1404,11 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
         <div className="flex flex-wrap items-center justify-between pt-1 border-t border-stone-100 text-xs text-stone-500">
           <div className="flex items-center gap-3">
             <span>
-              Showing <strong>{totalRecords === 0 ? 0 : startIndex + 1}–{endIndex}</strong> of <strong>{totalRecords}</strong> matching swine
+              {t('records_showing', {
+                start: totalRecords === 0 ? 0 : startIndex + 1,
+                end: endIndex,
+                total: totalRecords,
+              })}
             </span>
             {(searchTerm || selectedBarangay !== 'all' || swineTypeFilter !== 'all' || farmScaleFilter !== 'all' || asfZoneFilter !== 'all' || statusFilter !== 'all' || biosecurityFilter !== 'all' || readyFilter !== 'all') && (
               <button
@@ -1331,12 +1425,12 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 }}
                 className="text-emerald-700 hover:underline font-bold cursor-pointer"
               >
-                Clear all filters
+                {t('common_reset', 'Reset all filters')}
               </button>
             )}
           </div>
           <span className="text-[11px]">
-            Database Total: {swineList.length} recorded heads
+            {t('records_db_total', { total: swineList.length })}
           </span>
         </div>
       </div>
@@ -1447,7 +1541,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 >
                   <div className="flex items-center gap-1.5">
                     <Lock className="w-3 h-3 text-stone-400" />
-                    <span>Pig ID Tag</span>
+                    <span>{t('records_th_pig_id', 'Pig ID Tag')}</span>
                     {sortFieldKey === 'pigIdTag' && (
                       <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                     )}
@@ -1463,7 +1557,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span>Farmer</span>
+                    <span>{t('records_th_farmer', 'Farmer')}</span>
                     {sortFieldKey === 'farmerName' && (
                       <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                     )}
@@ -1479,7 +1573,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span>Barangay</span>
+                    <span>{t('records_th_barangay', 'Barangay')}</span>
                     {sortFieldKey === 'barangay' && (
                       <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                     )}
@@ -1495,7 +1589,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span>Birth Date</span>
+                    <span>{t('records_th_birth_date', 'Birth Date')}</span>
                     {sortFieldKey === 'birthDate' && (
                       <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                     )}
@@ -1511,7 +1605,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span>Age (Calc)</span>
+                    <span>{t('records_th_age', 'Age')}</span>
                     {sortFieldKey === 'age' && (
                       <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                     )}
@@ -1527,7 +1621,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span>Est. Weight</span>
+                    <span>{t('records_th_est_weight', 'Est. Weight')}</span>
                     {sortFieldKey === 'estimatedWeight' && (
                       <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                     )}
@@ -1543,7 +1637,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span>Actual Weight</span>
+                    <span>{t('records_th_actual_weight', 'Actual Weight')}</span>
                     {sortFieldKey === 'actualWeight' && (
                       <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                     )}
@@ -1559,7 +1653,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span>Swine Type</span>
+                    <span>{t('records_th_swine_type', 'Swine Type')}</span>
                     {sortFieldKey === 'swineType' && (
                       <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                     )}
@@ -1575,7 +1669,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span>Farm Scale</span>
+                    <span>{t('records_th_farm_scale', 'Farm Scale')}</span>
                     {sortFieldKey === 'farmScale' && (
                       <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                     )}
@@ -1591,7 +1685,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   }}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span>ASF Zone</span>
+                    <span>{t('records_th_asf_zone', 'ASF Zone')}</span>
                     {sortFieldKey === 'asfZone' && (
                       <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                     )}
@@ -1600,7 +1694,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
 
                 {/* Column 11: Biosecurity Warning */}
                 <th className="py-3.5 px-4 border-r border-stone-200 text-center">
-                  Biosecurity
+                  {t('records_th_biosecurity', 'Biosecurity')}
                 </th>
 
                 {/* Column 12: Status */}
@@ -1612,7 +1706,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                   }}
                 >
                   <div className="flex items-center justify-center gap-1.5">
-                    <span>Status</span>
+                    <span>{t('records_th_status', 'Status')}</span>
                     {sortFieldKey === 'status' && (
                       <span className="text-emerald-700 font-bold">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                     )}
@@ -1621,32 +1715,81 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
 
                 {/* Column 13: Sticky Actions */}
                 <th className="py-3.5 px-4 text-right sticky right-0 bg-stone-100/95 z-10 border-l border-stone-200 shadow-2xs">
-                  Actions
+                  {t('records_th_actions', 'Actions')}
                 </th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-stone-200">
-              {paginatedRecords.length === 0 ? (
+              {isLoadingDb && paginatedRecords.length === 0 ? (
+                <tr>
+                  <td colSpan={currentRole === 'admin' ? 14 : 13} className="py-20 text-center">
+                    <div className="max-w-md mx-auto space-y-3 px-4">
+                      <div className="w-10 h-10 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
+                      <h4 className="font-bold text-stone-900 text-sm">{t('loading_records', 'Loading swine records...')}</h4>
+                      <p className="text-xs text-stone-500">{t('records_db_status_connected', 'Retrieving actual records from the Swine Registry database...')}</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : dbError && paginatedRecords.length === 0 ? (
                 <tr>
                   <td colSpan={currentRole === 'admin' ? 14 : 13} className="py-16 text-center">
-                    {searchTerm.trim() ? (
+                    <div className="max-w-md mx-auto space-y-3 px-4 bg-rose-50 border border-rose-200 rounded-2xl p-6">
+                      <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 border border-rose-200 flex items-center justify-center mx-auto">
+                        <AlertTriangle className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-rose-900 text-sm">{t('records_load_error', 'Unable to load Swine Records.')}</h4>
+                        <p className="text-xs text-rose-700 font-medium mt-1">{t('records_db_error_generic', 'The system could not retrieve records from the database.')}</p>
+                        <p className="text-[11px] text-rose-600/80 mt-1">{dbError}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleFetchFromDatabase(true)}
+                        className="px-4 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs transition cursor-pointer shadow-sm flex items-center gap-1.5 mx-auto"
+                      >
+                        <RotateCw className="w-3.5 h-3.5" />
+                        <span>{t('btn_retry', 'Retry')}</span>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : paginatedRecords.length === 0 ? (
+                <tr>
+                  <td colSpan={currentRole === 'admin' ? 14 : 13} className="py-16 text-center">
+                    {swineList.length === 0 && !searchTerm.trim() ? (
+                      <div className="max-w-md mx-auto space-y-3 px-4">
+                        <div className="w-14 h-14 rounded-3xl bg-stone-100 text-stone-400 border border-stone-200 flex items-center justify-center mx-auto">
+                          <Database className="w-7 h-7 text-stone-400" />
+                        </div>
+                        <div>
+                          <h4 className="font-black text-stone-900 text-base">{t('records_empty_title', 'No Swine Records Found')}</h4>
+                          <p className="text-xs text-stone-500 mt-1">{t('records_empty_desc', 'There are currently no swine records in the database.')}</p>
+                        </div>
+                        {currentRole !== 'agent' && (
+                          <div className="pt-2">
+                            <button
+                              type="button"
+                              onClick={onAddSwine}
+                              className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition cursor-pointer shadow-sm flex items-center gap-1.5 mx-auto"
+                            >
+                              <Plus className="w-4 h-4" />
+                              <span>{t('records_add_first', 'Add Swine Record')}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : searchTerm.trim() ? (
                       <div className="max-w-md mx-auto space-y-3 px-4">
                         <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-700 border border-amber-200 flex items-center justify-center mx-auto shadow-2xs">
                           <Search className="w-6 h-6" />
                         </div>
                         <div>
                           <h4 className="font-bold text-stone-900 text-sm">
-                            No swine records found for &ldquo;{searchTerm}&rdquo;
+                            {t('records_no_match', { query: searchTerm })}
                           </h4>
                           <p className="text-xs text-stone-500 mt-1">
-                            No swine records matched in{' '}
-                            {searchScope === 'tag'
-                              ? 'Tag ID / Ear Tag numbers'
-                              : searchScope === 'owner'
-                              ? 'Owner / Raiser names'
-                              : 'Tag ID or Owner Name'}
-                            . Try searching by partial tag number or owner surname.
+                            {t('records_try_different_search', 'Try adjusting your search keywords or broadening the scope.')}
                           </p>
                         </div>
                         <div className="flex items-center justify-center gap-2 pt-1">
@@ -1655,7 +1798,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                             onClick={() => setSearchTerm('')}
                             className="px-3.5 py-1.5 rounded-xl bg-emerald-750 hover:bg-emerald-850 text-white font-bold text-xs transition cursor-pointer shadow-2xs"
                           >
-                            Clear Search
+                            {t('records_clear_search', 'Clear Search')}
                           </button>
                           {searchScope !== 'all' && (
                             <button
@@ -1663,14 +1806,14 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                               onClick={() => setSearchScope('all')}
                               className="px-3.5 py-1.5 rounded-xl border border-stone-300 hover:bg-stone-50 text-stone-700 font-semibold text-xs transition cursor-pointer"
                             >
-                              Search All Fields
+                              {t('records_all_fields', 'Search All Fields')}
                             </button>
                           )}
                         </div>
                       </div>
                     ) : (
                       <div className="space-y-2 py-4">
-                        <p className="text-stone-400 text-sm">No swine records found matching your active filters.</p>
+                        <p className="text-stone-400 text-sm">{t('records_no_matching_filters', 'No swine records found matching your active filters.')}</p>
                         <button
                           type="button"
                           onClick={() => {
@@ -1684,7 +1827,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                           }}
                           className="text-xs text-emerald-800 hover:text-emerald-950 font-bold underline cursor-pointer"
                         >
-                          Reset all filters
+                          {t('common_reset', 'Reset all filters')}
                         </button>
                       </div>
                     )}
@@ -1748,6 +1891,17 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                           <span className="text-[10px] text-stone-400 block">
                             Reg: {new Date(swine.registeredAt).toLocaleDateString()}
                           </span>
+                          {swine.isSynced === false ? (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.2 rounded-full mt-0.5 border border-amber-300">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse"></span>
+                              {t('sync_badge_pending', 'Pending Sync')}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded-full mt-0.5 border border-emerald-200">
+                              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                              {t('sync_badge_synced', 'Synced')}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -1813,15 +1967,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                     {/* Column 8: Swine Type */}
                     <td className="py-3 px-4 border-r border-stone-200">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-100 text-stone-800 border border-stone-200">
-                        {swine.swineType === 'boar'
-                          ? 'Breeding Boar'
-                          : swine.swineType === 'sow'
-                          ? 'Breeding Sow'
-                          : swine.swineType === 'piglet'
-                          ? 'Piglet'
-                          : swine.swineType === 'grower'
-                          ? 'Grower'
-                          : 'Finisher'}
+                        {getSwineTypeLabel(swine.swineType)}
                       </span>
                     </td>
 
@@ -1843,7 +1989,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                           title={`Breeding Boar in ${swine.computedAsfZone} Zone. Movement restrictions apply.`}
                         >
                           <AlertTriangle className="w-3 h-3 text-red-600" />
-                          <span>BIOSECURITY</span>
+                          <span>{t('records_biosecurity_warning', 'BIOSECURITY')}</span>
                         </span>
                       ) : (
                         <span className="text-[11px] text-stone-400 font-medium">—</span>
@@ -1854,15 +2000,15 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                     <td className="py-3 px-4 border-r border-stone-200 text-center">
                       {swine.status === 'sold' ? (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-200 text-stone-700">
-                          SOLD
+                          {getStatusLabel('sold')}
                         </span>
                       ) : swine.computedIsReady ? (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-1">
-                          <Sparkles className="w-2.5 h-2.5 text-amber-600" /> READY
+                          <Sparkles className="w-2.5 h-2.5 text-amber-600" /> {t('records_ready_to_sell', 'READY')}
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          GROWING
+                          {getStatusLabel(swine.status || 'active')}
                         </span>
                       )}
                     </td>
@@ -1874,7 +2020,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                         <button
                           onClick={() => setViewingRecord(swine)}
                           className="p-1.5 rounded-lg text-emerald-800 hover:bg-emerald-100 transition cursor-pointer"
-                          title="View Full Record Details"
+                          title={t('records_view_details', 'View Full Record Details')}
                         >
                           <Eye className="w-4 h-4" />
                         </button>
@@ -1884,7 +2030,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                           <button
                             onClick={() => onViewOnMap(swine)}
                             className="p-1.5 rounded-lg text-teal-700 hover:bg-teal-100 transition cursor-pointer"
-                            title="Locate on Hinunangan GIS Map"
+                            title={t('records_locate_map', 'Locate on Hinunangan GIS Map')}
                           >
                             <MapPin className="w-4 h-4" />
                           </button>
@@ -1894,7 +2040,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                         <button
                           onClick={() => setPrintSingleRecord(swine)}
                           className="p-1.5 rounded-lg text-stone-600 hover:bg-stone-100 transition cursor-pointer"
-                          title="Print Swine Record Certificate"
+                          title={t('records_print_single', 'Print Swine Record Certificate')}
                         >
                           <Printer className="w-4 h-4" />
                         </button>
@@ -1904,7 +2050,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                           <button
                             onClick={() => onEditSwine(swine)}
                             className="p-1.5 rounded-lg text-stone-600 hover:bg-stone-100 transition cursor-pointer"
-                            title="Edit Record (Pig ID is locked)"
+                            title={t('records_edit_locked', 'Edit Record (Pig ID is locked)')}
                           >
                             <Edit className="w-4 h-4" />
                           </button>
@@ -1919,7 +2065,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                                 ? 'text-amber-600 hover:bg-amber-100'
                                 : 'text-stone-400 hover:bg-stone-100'
                             }`}
-                            title={swine.readyToSell ? 'Unmark Ready to Sell' : 'Mark as Ready to Sell'}
+                            title={swine.readyToSell ? t('records_unmark_sell', 'Unmark Ready to Sell') : t('records_mark_sell', 'Mark as Ready to Sell')}
                           >
                             <ShoppingBag className="w-4 h-4" />
                           </button>
@@ -1930,7 +2076,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                           <button
                             onClick={() => handleMarkSold(swine)}
                             className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-100 transition cursor-pointer"
-                            title="Mark as Officially Sold"
+                            title={t('records_mark_sold', 'Mark as Officially Sold')}
                           >
                             <CheckCircle className="w-4 h-4" />
                           </button>
@@ -1940,7 +2086,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                         <button
                           onClick={() => onIssueCertificate(swine)}
                           className="p-1.5 rounded-lg text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
-                          title="Generate Barangay Certificate"
+                          title={t('records_issue_cert', 'Generate Barangay Certificate')}
                         >
                           <FileText className="w-4 h-4" />
                         </button>
@@ -1950,7 +2096,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                           <button
                             onClick={() => handleToggleArchive(swine.id)}
                             className="p-1.5 rounded-lg text-stone-500 hover:bg-stone-100 transition cursor-pointer"
-                            title={swine.isArchived ? 'Restore Record' : 'Archive Record'}
+                            title={swine.isArchived ? t('records_restore', 'Restore Record') : t('records_archive', 'Archive Record')}
                           >
                             {swine.isArchived ? (
                               <ArchiveRestore className="w-4 h-4" />
@@ -1965,7 +2111,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                           <button
                             onClick={() => setDeleteConfirmRecord(swine)}
                             className="p-1.5 rounded-lg text-red-500 hover:bg-red-100 transition cursor-pointer"
-                            title="Delete Swine Record"
+                            title={t('records_delete_record', 'Delete Swine Record')}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -1985,11 +2131,11 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
           <div className="px-4 py-3 bg-stone-50 border-t border-stone-200 flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="text-stone-600 font-medium flex items-center gap-2">
               <span>
-                Page <strong>{validCurrentPage}</strong> of <strong>{totalPages}</strong> ({totalRecords} records)
+                {t('pagination_page', 'Page')} <strong>{validCurrentPage}</strong> {t('pagination_of', 'of')} <strong>{totalPages}</strong> ({totalRecords} {t('records_total_heads', 'records')})
               </span>
               {currentRole === 'admin' && selectedRecordIds.size > 0 && (
                 <span className="text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 text-[11px]">
-                  {selectedRecordIds.size} selected
+                  {t('records_selected_count', { count: selectedRecordIds.size }, `${selectedRecordIds.size} selected`)}
                 </span>
               )}
             </div>
@@ -2001,13 +2147,14 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 onClick={() => setCurrentPage(1)}
                 className="px-2.5 py-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
               >
-                First
+                {t('pagination_first', 'First')}
               </button>
               <button
                 type="button"
                 disabled={validCurrentPage <= 1}
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 className="p-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
+                title={t('pagination_prev', 'Previous')}
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -2021,6 +2168,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 disabled={validCurrentPage >= totalPages}
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 className="p-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
+                title={t('pagination_next', 'Next')}
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -2030,7 +2178,7 @@ export const PigsRecords: React.FC<PigsRecordsProps> = ({
                 onClick={() => setCurrentPage(totalPages)}
                 className="px-2.5 py-1 rounded-lg border border-stone-300 bg-white font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-stone-100 cursor-pointer shadow-2xs"
               >
-                Last
+                {t('pagination_last', 'Last')}
               </button>
             </div>
           </div>

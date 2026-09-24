@@ -1,79 +1,88 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { storageService } from '../services/storageService';
+import { offlineSyncEngine, SyncEngineStatus, SyncState } from '../services/offlineSyncEngine';
+import { indexedDbService, OfflineSyncQueueRecord } from '../services/indexedDbService';
 
 export function useOfflineStatus() {
-  const [isBrowserOnline, setIsBrowserOnline] = useState<boolean>(
-    typeof navigator !== 'undefined' ? navigator.onLine : true
-  );
-  const [isSimulatedOffline, setIsSimulatedOffline] = useState<boolean>(() =>
-    storageService.getSimulatedOffline()
-  );
-  const [pendingQueueCount, setPendingQueueCount] = useState<number>(() =>
-    storageService.getOfflineQueue().length
-  );
+  const [status, setStatus] = useState<SyncEngineStatus>(() => offlineSyncEngine.getStatus());
+  const [pendingQueueCount, setPendingQueueCount] = useState<number>(0);
+  const [pendingItems, setPendingItems] = useState<OfflineSyncQueueRecord[]>([]);
 
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsBrowserOnline(true);
-      // Auto-sync if not simulated offline
-      if (!storageService.getSimulatedOffline()) {
-        storageService.syncOfflineQueue();
-        setPendingQueueCount(storageService.getOfflineQueue().length);
-      }
-    };
-
-    const handleOffline = () => {
-      setIsBrowserOnline(false);
-    };
-
-    const handleConnectivityChange = (e: Event) => {
-      const customEvent = e as CustomEvent<{ isSimulatedOffline: boolean }>;
-      setIsSimulatedOffline(customEvent.detail.isSimulatedOffline);
-      setPendingQueueCount(storageService.getOfflineQueue().length);
-    };
-
-    const handleQueueUpdate = (e: Event) => {
-      const customEvent = e as CustomEvent<{ count: number }>;
-      setPendingQueueCount(customEvent.detail.count);
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    window.addEventListener('da_connectivity_change', handleConnectivityChange);
-    window.addEventListener('da_offline_queue_update', handleQueueUpdate);
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('da_connectivity_change', handleConnectivityChange);
-      window.removeEventListener('da_offline_queue_update', handleQueueUpdate);
-    };
+  const refreshQueueData = useCallback(async () => {
+    try {
+      const items = await indexedDbService.getPendingSyncQueue();
+      setPendingItems(items);
+      setPendingQueueCount(items.length);
+    } catch {
+      const legacyCount = storageService.getOfflineQueue().length;
+      setPendingQueueCount(legacyCount);
+    }
   }, []);
 
-  const isOnline = isBrowserOnline && !isSimulatedOffline;
+  useEffect(() => {
+    refreshQueueData();
 
-  const toggleSimulateOffline = () => {
-    const nextState = !isSimulatedOffline;
+    const handleSyncStatus = (e: Event) => {
+      const customEvent = e as CustomEvent<SyncEngineStatus>;
+      if (customEvent.detail) {
+        setStatus(customEvent.detail);
+      }
+      refreshQueueData();
+    };
+
+    const handleQueueChange = () => {
+      refreshQueueData();
+    };
+
+    window.addEventListener('da_sync_status_updated', handleSyncStatus);
+    window.addEventListener('da_offline_queue_changed', handleQueueChange);
+    window.addEventListener('da_connectivity_change', handleQueueChange);
+
+    return () => {
+      window.removeEventListener('da_sync_status_updated', handleSyncStatus);
+      window.removeEventListener('da_offline_queue_changed', handleQueueChange);
+      window.removeEventListener('da_connectivity_change', handleQueueChange);
+    };
+  }, [refreshQueueData]);
+
+  const toggleSimulateOffline = useCallback(() => {
+    const nextState = !storageService.getSimulatedOffline();
     storageService.setSimulatedOffline(nextState);
-    setIsSimulatedOffline(nextState);
-    if (!nextState && isBrowserOnline) {
-      storageService.syncOfflineQueue();
-      setPendingQueueCount(0);
-    }
-  };
+    window.dispatchEvent(new CustomEvent('da_connectivity_change', { detail: { isSimulatedOffline: nextState } }));
+  }, []);
 
-  const forceSync = () => {
-    const result = storageService.syncOfflineQueue();
-    setPendingQueueCount(storageService.getOfflineQueue().length);
-    return result;
-  };
+  const forceSync = useCallback(async () => {
+    const result = await offlineSyncEngine.syncNow();
+    await refreshQueueData();
+    return {
+      success: result.success,
+      syncedCount: result.pushedCount + result.pulledCount,
+      pushedCount: result.pushedCount,
+      pulledCount: result.pulledCount,
+      error: result.error,
+    };
+  }, [refreshQueueData]);
+
+  const clearQueue = useCallback(async () => {
+    await indexedDbService.clear('syncQueue');
+    storageService.clearOfflineQueue();
+    await refreshQueueData();
+  }, [refreshQueueData]);
 
   return {
-    isOnline,
-    isBrowserOnline,
-    isSimulatedOffline,
+    isOnline: status.isOnline,
+    isBrowserOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+    isBackendReachable: status.isBackendReachable,
+    isSimulatedOffline: storageService.getSimulatedOffline(),
+    syncState: status.state as SyncState,
     pendingQueueCount,
+    pendingItems,
+    lastSyncedAt: status.lastSyncedAt,
+    lastError: status.lastError,
+    syncedThisSession: status.syncedThisSession,
     toggleSimulateOffline,
     forceSync,
+    clearQueue,
+    refreshQueueData,
   };
 }

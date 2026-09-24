@@ -121,11 +121,17 @@ export default function App() {
   // Unread messages count
   const [unreadCount, setUnreadCount] = useState<number>(0);
 
-  const refreshAllData = () => {
-    setSwineList(storageService.getSwineRecords());
+  const refreshAllData = async () => {
     setBarangays(storageService.getBarangays());
     setLandingConfig(storageService.getLandingConfig());
     setAccounts(storageService.getAccounts());
+
+    try {
+      const { records } = await storageService.fetchSwineRecords();
+      setSwineList(records);
+    } catch {
+      setSwineList(storageService.getSwineRecords());
+    }
 
     const msgs = storageService.getMessages();
     const currUser = storageService.getCurrentUser();
@@ -159,6 +165,17 @@ export default function App() {
   useEffect(() => {
     refreshAllData();
   }, [currentRole, currentUser]);
+
+  useEffect(() => {
+    const handleSwineUpdate = (e: Event) => {
+      const customEvt = e as CustomEvent<SwineRecord[]>;
+      if (customEvt?.detail) {
+        setSwineList(customEvt.detail);
+      }
+    };
+    window.addEventListener('swine_records_updated', handleSwineUpdate);
+    return () => window.removeEventListener('swine_records_updated', handleSwineUpdate);
+  }, []);
 
   useEffect(() => {
     const handleCmsUpdate = (e: Event) => {

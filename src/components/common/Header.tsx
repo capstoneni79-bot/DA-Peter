@@ -32,6 +32,7 @@ import {
 import { UserAccount, UserRole } from '../../types';
 import { useOfflineStatus } from '../../hooks/useOfflineStatus';
 import { PWAInstallButton } from './PWAInstallButton';
+import { SyncCenterModal } from './SyncCenterModal';
 import { storageService } from '../../services/storageService';
 import { useOfficialLogos } from './OfficialSeals';
 import { useLanguage } from '../../context/LanguageContext';
@@ -69,11 +70,12 @@ export const Header: React.FC<HeaderProps> = ({
   isSidebarOpen = false,
   onToggleSidebar,
 }) => {
-  const { isOnline, isSimulatedOffline, toggleSimulateOffline } = useOfflineStatus();
+  const { isOnline, isSimulatedOffline, pendingQueueCount, toggleSimulateOffline } = useOfflineStatus();
   const { language, setLanguage, t } = useLanguage();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isAdminDropdownOpen, setIsAdminDropdownOpen] = useState(false);
   const [isLandingNavOpen, setIsLandingNavOpen] = useState(false);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const logos = useOfficialLogos();
   const activeHeaderLogo = logos['logo-header'] || logos['logo-system'] || logos['logo-da'] || logos['logo-website'] || '/icon.svg';
 
@@ -185,18 +187,32 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
 
-          {/* Simulate Offline Button */}
+          {/* Simulate Offline Button & Sync Center */}
           <button
-            onClick={toggleSimulateOffline}
+            onClick={() => setIsSyncModalOpen(true)}
             className={`cursor-pointer px-2 py-0.5 rounded-md text-[11px] font-semibold flex items-center gap-1 transition ${
-              isSimulatedOffline
+              !isOnline
                 ? 'bg-amber-600 text-white hover:bg-amber-500'
+                : pendingQueueCount > 0
+                ? 'bg-emerald-800 text-emerald-200 border border-emerald-600 hover:bg-emerald-700'
                 : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
             }`}
-            title="Toggle simulated offline state for field test"
+            title="Open Offline Synchronization Center"
           >
-            {isSimulatedOffline ? <WifiOff className="w-3 h-3 text-white" /> : <Wifi className="w-3 h-3 text-emerald-400" />}
-            <span className="hidden sm:inline">{isSimulatedOffline ? t('header_sim_offline') : t('header_sync_active')}</span>
+            {!isOnline ? (
+              <WifiOff className="w-3 h-3 text-white" />
+            ) : (
+              <Wifi className="w-3 h-3 text-emerald-400" />
+            )}
+            <span className="hidden sm:inline">
+              {!isOnline
+                ? isSimulatedOffline
+                  ? t('header_sim_offline')
+                  : 'Offline'
+                : pendingQueueCount > 0
+                ? `${pendingQueueCount} Pending`
+                : t('header_sync_active')}
+            </span>
           </button>
 
           {/* Backup / Export */}
@@ -312,7 +328,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-800 to-teal-800 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm hover:shadow-md transition cursor-pointer"
             >
               <LogIn className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Official Login</span>
+              <span>{t('btn_login', 'Official Login')}</span>
             </button>
           )}
 
@@ -361,6 +377,12 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Bottom Gold/Amber Accent Line as in official reference */}
       <div className="h-1 bg-amber-500 w-full" />
+
+      {/* Sync Center Modal */}
+      <SyncCenterModal
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
+      />
     </header>
   );
 };

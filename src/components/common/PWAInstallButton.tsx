@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Download, Share, PlusSquare, X } from 'lucide-react';
+import { Download, Smartphone, X } from 'lucide-react';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
+import { useLanguage } from '../../context/LanguageContext';
 
-export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+export const PWAInstallButton: React.FC<{ className?: string }> = ({ className = '' }) => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
-  const [showIOSModal, setShowIOSModal] = useState(false);
+  const [showIOSGuide, setShowIOSGuide] = useState(false);
+  const { t } = useLanguage();
 
   if (isInstalled) {
     return null;
@@ -13,15 +15,12 @@ export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = fa
   if (isInstallable) {
     return (
       <button
-        id="btn-pwa-install"
         onClick={install}
-        className={`flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-sm transition text-xs cursor-pointer ${
-          compact ? 'px-2.5 py-1.5' : 'px-3 py-1.5'
-        }`}
-        title="Install Swine Registry App for Offline Use"
+        title={t('sync_pwa_install')}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold shadow-xs transition cursor-pointer border border-emerald-500/40 ${className}`}
       >
         <Download className="w-3.5 h-3.5" />
-        <span>Install App</span>
+        <span>{t('sync_pwa_install')}</span>
       </button>
     );
   }
@@ -30,49 +29,52 @@ export const PWAInstallButton: React.FC<{ compact?: boolean }> = ({ compact = fa
     return (
       <>
         <button
-          id="btn-ios-install-guide"
-          onClick={() => setShowIOSModal(true)}
-          className={`flex items-center gap-1.5 rounded-lg border border-emerald-600/50 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 font-medium text-xs transition cursor-pointer ${
-            compact ? 'px-2 py-1' : 'px-3 py-1.5'
-          }`}
+          onClick={() => setShowIOSGuide(true)}
+          title="Install on iPhone / iPad"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium border border-slate-700 transition cursor-pointer ${className}`}
         >
-          <Download className="w-3.5 h-3.5 text-emerald-700" />
-          <span>Install (iOS)</span>
+          <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Install App</span>
         </button>
 
-        {showIOSModal && (
+        {showIOSGuide && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-            <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-2xl border border-stone-200">
-              <div className="flex items-center justify-between border-b pb-3 border-stone-100">
-                <h3 className="text-base font-bold text-stone-900 flex items-center gap-2">
-                  <Download className="w-4 h-4 text-emerald-700" /> Install on iPhone / iPad
-                </h3>
+            <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl text-slate-900 animate-in fade-in zoom-in duration-200">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                    DA
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900">Install on iPhone / iPad</h3>
+                </div>
                 <button
-                  onClick={() => setShowIOSModal(false)}
-                  className="text-stone-400 hover:text-stone-600 p-1"
+                  onClick={() => setShowIOSGuide(false)}
+                  className="text-slate-400 hover:text-slate-700 p-1"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="mt-4 space-y-3 text-xs text-stone-600">
-                <p className="flex items-start gap-2">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-800">1</span>
-                  <span>Tap the <strong className="inline-flex items-center gap-1 text-stone-800"><Share className="w-3.5 h-3.5" /> Share</strong> button in Safari toolbar.</span>
-                </p>
-                <p className="flex items-start gap-2">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-800">2</span>
-                  <span>Scroll down and tap <strong className="inline-flex items-center gap-1 text-stone-800"><PlusSquare className="w-3.5 h-3.5" /> Add to Home Screen</strong>.</span>
-                </p>
-                <p className="flex items-start gap-2">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-800">3</span>
-                  <span>Open the app anytime from your home screen — fully functional even without cellular data or Wi-Fi in the field!</span>
-                </p>
+
+              <div className="mt-4 space-y-3 text-xs sm:text-sm text-slate-600">
+                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold shrink-0">1</span>
+                  <span>Tap the <strong>Share</strong> button in Safari toolbar.</span>
+                </div>
+                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold shrink-0">2</span>
+                  <span>Scroll down and tap <strong>Add to Home Screen</strong>.</span>
+                </div>
+                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold shrink-0">3</span>
+                  <span>Launch from your home screen for full offline capability!</span>
+                </div>
               </div>
+
               <button
-                onClick={() => setShowIOSModal(false)}
-                className="mt-5 w-full rounded-lg bg-emerald-700 py-2 text-xs font-semibold text-white hover:bg-emerald-800 transition"
+                onClick={() => setShowIOSGuide(false)}
+                className="mt-5 w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2.5 text-sm font-semibold text-white shadow-sm transition"
               >
-                Got It
+                Understood
               </button>
             </div>
           </div>

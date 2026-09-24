@@ -7,6 +7,8 @@ export const users = pgTable('users', {
   name: text('name'),
   role: text('role').notNull().default('focal'),
   assignedBarangay: text('assigned_barangay'),
+  phone: text('phone'),
+  password: text('password'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -52,6 +54,39 @@ export const issuedCertificates = pgTable('issued_certificates', {
   validUntil: text('valid_until'),
   status: text('status').notNull().default('VALID'),
   createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const messages = pgTable('messages', {
+  id: text('id').primaryKey(),
+  senderId: text('sender_id').notNull(),
+  senderName: text('sender_name').notNull(),
+  senderRole: text('sender_role').notNull().default('focal'),
+  receiverId: text('receiver_id'),
+  receiverRole: text('receiver_role'),
+  barangay: text('barangay'),
+  text: text('text').notNull(),
+  attachments: jsonb('attachments'),
+  isRead: boolean('is_read').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const mediaFiles = pgTable('media_files', {
+  id: text('id').primaryKey(),
+  fileName: text('file_name').notNull(),
+  filePath: text('file_path'),
+  fileUrl: text('file_url').notNull(),
+  mimeType: text('mime_type'),
+  fileSize: integer('file_size'),
+  category: text('category').notNull().default('OTHER'),
+  altText: text('alt_text'),
+  uploadedBy: text('uploaded_by'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const systemSettings = pgTable('system_settings', {
+  key: text('key').primaryKey(),
+  value: jsonb('value'),
+  updatedAt: timestamp('updated_at').defaultNow(),
 });
 
 export const auditLogs = pgTable('audit_logs', {

@@ -60,7 +60,7 @@ export const createPool = () => {
     global._postgresPool = new Pool(poolConfig);
 
     global._postgresPool.on('error', (err) => {
-      console.warn('PostgreSQL pool idle client warning:', err.message);
+      console.warn('PostgreSQL pool idle client notice:', err.message);
     });
   }
   return global._postgresPool;
@@ -70,14 +70,14 @@ export const pool = createPool();
 export const db = drizzle(pool, { schema });
 
 /**
- * Initializes all required PostgreSQL tables on Supabase/Render if they don't exist.
+ * Initializes all required PostgreSQL tables on Supabase/Render/Local if they don't exist.
  */
 export async function initPostgresTables(): Promise<boolean> {
   try {
     const client = await pool.connect();
     try {
       await client.query(`
-        -- Users table
+        -- 1. Users table
         CREATE TABLE IF NOT EXISTS users (
           id SERIAL PRIMARY KEY,
           uid TEXT NOT NULL UNIQUE,
@@ -85,10 +85,12 @@ export async function initPostgresTables(): Promise<boolean> {
           name TEXT,
           role TEXT NOT NULL DEFAULT 'focal',
           assigned_barangay TEXT,
-          created_at TIMESTAMP DEFAULT NOW()
+          phone TEXT,
+          password TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
 
-        -- Swine Records table
+        -- 2. Swine Records table
         CREATE TABLE IF NOT EXISTS swine_records (
           id TEXT PRIMARY KEY,
           computed_pig_id TEXT NOT NULL,
@@ -114,10 +116,10 @@ export async function initPostgresTables(): Promise<boolean> {
           is_archived BOOLEAN NOT NULL DEFAULT FALSE,
           registered_at TEXT NOT NULL,
           custom_fields JSONB,
-          created_at TIMESTAMP DEFAULT NOW()
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
 
-        -- Issued Certificates table
+        -- 3. Issued Certificates table
         CREATE TABLE IF NOT EXISTS issued_certificates (
           id TEXT PRIMARY KEY,
           control_number TEXT NOT NULL,
@@ -131,10 +133,46 @@ export async function initPostgresTables(): Promise<boolean> {
           qr_payload TEXT,
           valid_until TEXT,
           status TEXT NOT NULL DEFAULT 'VALID',
-          created_at TIMESTAMP DEFAULT NOW()
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
 
-        -- Audit Logs table
+        -- 4. Messages table
+        CREATE TABLE IF NOT EXISTS messages (
+          id TEXT PRIMARY KEY,
+          sender_id TEXT NOT NULL,
+          sender_name TEXT NOT NULL,
+          sender_role TEXT NOT NULL DEFAULT 'focal',
+          receiver_id TEXT,
+          receiver_role TEXT,
+          barangay TEXT,
+          text TEXT NOT NULL,
+          attachments JSONB,
+          is_read BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+
+        -- 5. Media Files table
+        CREATE TABLE IF NOT EXISTS media_files (
+          id TEXT PRIMARY KEY,
+          file_name TEXT NOT NULL,
+          file_path TEXT,
+          file_url TEXT NOT NULL,
+          mime_type TEXT,
+          file_size INTEGER,
+          category TEXT NOT NULL DEFAULT 'OTHER',
+          alt_text TEXT,
+          uploaded_by TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+
+        -- 6. System Settings table
+        CREATE TABLE IF NOT EXISTS system_settings (
+          key TEXT PRIMARY KEY,
+          value JSONB,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+
+        -- 7. Audit Logs table
         CREATE TABLE IF NOT EXISTS audit_logs (
           id SERIAL PRIMARY KEY,
           action TEXT NOT NULL,
@@ -145,23 +183,25 @@ export async function initPostgresTables(): Promise<boolean> {
           user_role TEXT,
           barangay TEXT,
           details TEXT,
-          timestamp TIMESTAMP DEFAULT NOW()
+          timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
 
-        -- Create indices for ultra-fast query performance
+        -- Performance indices
         CREATE INDEX IF NOT EXISTS idx_swine_barangay ON swine_records(barangay);
         CREATE INDEX IF NOT EXISTS idx_swine_status ON swine_records(status);
         CREATE INDEX IF NOT EXISTS idx_swine_ready ON swine_records(ready_to_sell);
         CREATE INDEX IF NOT EXISTS idx_certs_barangay ON issued_certificates(barangay);
         CREATE INDEX IF NOT EXISTS idx_certs_control ON issued_certificates(control_number);
+        CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_media_category ON media_files(category);
       `);
-      console.log('✅ PostgreSQL / Supabase tables and indices initialized successfully.');
+      console.log('✅ PostgreSQL / Supabase tables verified.');
       return true;
     } finally {
       client.release();
     }
   } catch (err: any) {
-    console.warn('⚠️ Notice: Could not connect to PostgreSQL server yet. Operating in resilient fallback mode:', err.message);
+    console.warn('PostgreSQL connection notice:', err.message);
     return false;
   }
 }

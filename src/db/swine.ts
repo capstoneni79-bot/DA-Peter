@@ -1,65 +1,239 @@
 import { db } from './index.ts';
 import { swineRecords } from './schema.ts';
-import { eq, inArray } from 'drizzle-orm';
-import { INITIAL_SWINE_RECORDS } from '../data/initialData.ts';
+import { eq, inArray, and, ilike, or, desc, sql } from 'drizzle-orm';
+import { SwineRecord } from '../types.ts';
+import { calculateSwineAge, getEstimatedWeightRange, getBarangayASFZone, classifyFarmScale } from '../utils/swineRegistryLogic.ts';
 
-export function mapSwineToDb(s: any) {
+export function mapDbToSwine(row: any): SwineRecord {
+  const birthDate = row.birthDate || row.birth_date || '';
+  const age = calculateSwineAge(birthDate);
+  const safeDays = age.isValid ? age.days : (row.ageDays ?? row.age_days ?? 0);
+  const safeMonths = age.isValid ? age.months : (row.ageMonths ?? row.age_months ?? 0);
+  const estimatedWeightRange = getEstimatedWeightRange(safeDays);
+
+  const custom = (row.customFields || row.custom_fields) && typeof (row.customFields || row.custom_fields) === 'object'
+    ? (row.customFields || row.custom_fields)
+    : {};
+
+  const actualWeightNum = row.actualWeightKg !== undefined && row.actualWeightKg !== null && row.actualWeightKg !== ''
+    ? Number(row.actualWeightKg)
+    : (row.actual_weight_kg !== undefined && row.actual_weight_kg !== null && row.actual_weight_kg !== ''
+      ? Number(row.actual_weight_kg)
+      : (custom.weightKg !== undefined && custom.weightKg !== null ? Number(custom.weightKg) : null));
+
+  const weightNum = actualWeightNum !== null ? actualWeightNum : 60;
+
+  const barangayName = row.barangay || 'Ambacon';
+  const farmScale = row.farmScale || row.farm_scale || classifyFarmScale(custom.penCapacity || 5);
+  const asfZone = row.asfZone || row.asf_zone || getBarangayASFZone(barangayName);
+  const pigIdTag = row.pigIdTag || row.pig_id_tag || row.computedPigId || row.computed_pig_id || row.id;
+
+  const farmerAddress = custom.farmerAddress || row.farmName || row.farm_name || '';
+  const barangayId = custom.barangayId || `brgy-${barangayName.toLowerCase().replace(/\s+/g, '-')}`;
+  const latitude = custom.latitude !== undefined && custom.latitude !== null
+    ? Number(custom.latitude)
+    : 10.3969;
+  const longitude = custom.longitude !== undefined && custom.longitude !== null
+    ? Number(custom.longitude)
+    : 125.1999;
+  const registeredBy = custom.registeredBy || 'Municipal Agriculture Officer';
+
   return {
-    id: s.id,
-    computedPigId: s.pigIdTag || s.earTagNo || s.computedPigId || s.id,
-    pigIdTag: s.pigIdTag || s.earTagNo,
-    earTagNo: s.earTagNo || s.pigIdTag,
-    farmerName: s.farmerName,
-    farmName: s.farmName || s.farmerAddress || '',
-    farmerContact: s.farmerContact || '',
-    barangay: s.barangay,
-    birthDate: s.birthDate || '',
-    ageDays: typeof s.ageDays === 'number' ? s.ageDays : null,
-    ageMonths: String(s.ageMonths || ''),
-    estimatedWeightKg: String(s.estimatedWeightKg || ''),
-    actualWeightKg: String(s.actualWeightKg || s.weightKg || ''),
-    swineType: s.swineType || 'FATTER_GROWER',
-    farmScale: s.farmScale || 'BACKYARD',
-    asfZone: s.asfZone || 'RED',
-    biosecurityWarning: Boolean(s.biosecurityWarning),
-    status: (s.status || 'HEALTHY').toUpperCase(),
-    readyToSell: Boolean(s.readyToSell),
-    priceEstimate: String(s.priceEstimate || ''),
-    photoUrl: s.photoUrl || '',
-    isArchived: Boolean(s.isArchived),
-    registeredAt: s.registeredAt || new Date().toISOString(),
-    customFields: s.customFields || s.biosecurity || null,
+    id: String(row.id),
+    pigIdTag,
+    earTagNo: row.earTagNo || row.ear_tag_no || pigIdTag,
+    farmerName: row.farmerName || row.farmer_name || 'No farmer assigned',
+    farmerContact: row.farmerContact || row.farmer_contact || '',
+    farmerAddress,
+    farmName: row.farmName || row.farm_name || '',
+    barangay: barangayName,
+    barangay_id: barangayId,
+    farmType: farmScale === 'BACKYARD' ? 'backyard' : 'commercial',
+    farmScale,
+    asfZone,
+    swineType: (row.swineType || row.swine_type || 'grower').toLowerCase() as any,
+    breed: row.breed || custom.breed || 'Large White Cross',
+    ageWeeks: Math.round(safeDays / 7),
+    ageDays: safeDays,
+    ageMonths: safeMonths,
+    birthDate,
+    weightKg: weightNum,
+    actualWeightKg: actualWeightNum,
+    estimatedWeightKg: estimatedWeightRange,
+    gender: (row.gender || custom.gender || 'castrated') as any,
+    photoUrl: row.photoUrl || row.photo_url || '',
+    latitude,
+    longitude,
+    status: (row.status || 'healthy').toLowerCase() as any,
+    readyToSell: Boolean(row.readyToSell ?? row.ready_to_sell),
+    estimatedPricePhp: row.priceEstimate || row.price_estimate ? Number(row.priceEstimate || row.price_estimate) : undefined,
+    isArchived: Boolean(row.isArchived ?? row.is_archived),
+    biosecurity: custom.biosecurity || {
+      perimeterFence: true,
+      footbathInstalled: true,
+      disinfectionRoutine: true,
+      quarantinePenAvailable: false,
+      potableWaterSource: true,
+      standardFeedStorage: true,
+      asfVaccinationOrTesting: true,
+      noSwillFeeding: true,
+      visitorLogbook: false,
+      wasteLagoonOrCompost: true,
+    },
+    notes: custom.notes || '',
+    registeredBy,
+    registeredAt: row.registeredAt || row.registered_at || new Date().toISOString(),
+    updatedAt: row.createdAt || row.created_at || new Date().toISOString(),
+    customFields: custom,
+    isSynced: true,
   };
 }
 
-export async function getAllSwineRecords() {
+export function mapSwineToDb(s: any) {
+  const birthDate = s.birthDate || '';
+  const age = calculateSwineAge(birthDate);
+  const safeDays = age.isValid ? age.days : (typeof s.ageDays === 'number' ? s.ageDays : null);
+  const safeMonths = age.isValid ? String(age.months) : String(s.ageMonths || '');
+  const estimatedWeightRange = getEstimatedWeightRange(safeDays || 0);
+
+  const customPayload = {
+    ...(s.customFields && typeof s.customFields === 'object' ? s.customFields : {}),
+    farmerAddress: s.farmerAddress || '',
+    barangayId: s.barangay_id || s.barangayId || '',
+    registeredBy: s.registeredBy || 'Municipal Agriculture Officer',
+    latitude: s.latitude !== undefined && s.latitude !== null ? Number(s.latitude) : 10.3969,
+    longitude: s.longitude !== undefined && s.longitude !== null ? Number(s.longitude) : 125.1999,
+    weightKg: s.weightKg !== undefined && s.weightKg !== null ? Number(s.weightKg) : (s.actualWeightKg ? Number(s.actualWeightKg) : 60),
+    biosecurity: s.biosecurity,
+    breed: s.breed,
+    gender: s.gender,
+    notes: s.notes,
+    penCapacity: s.penCapacity,
+    rsbsaId: s.rsbsaId,
+    distanceToWaterSourceMeters: s.distanceToWaterSourceMeters,
+    distanceToTourismSchoolMeters: s.distanceToTourismSchoolMeters,
+    distanceToBuiltUpMeters: s.distanceToBuiltUpMeters,
+    setbackCompliant: s.setbackCompliant,
+  };
+
+  return {
+    id: String(s.id),
+    computedPigId: s.pigIdTag || s.earTagNo || s.computedPigId || s.id,
+    pigIdTag: s.pigIdTag || s.earTagNo || s.id,
+    earTagNo: s.earTagNo || s.pigIdTag || s.id,
+    farmerName: s.farmerName || 'No farmer assigned',
+    farmName: s.farmName || s.farmerAddress || '',
+    farmerContact: s.farmerContact || '',
+    barangay: s.barangay || 'Ambacon',
+    birthDate,
+    ageDays: safeDays,
+    ageMonths: safeMonths,
+    estimatedWeightKg: estimatedWeightRange,
+    actualWeightKg: s.actualWeightKg !== undefined && s.actualWeightKg !== null ? String(s.actualWeightKg) : (s.weightKg ? String(s.weightKg) : null),
+    swineType: (s.swineType || 'grower').toUpperCase(),
+    farmScale: (s.farmScale || 'BACKYARD').toUpperCase(),
+    asfZone: (s.asfZone || 'RED').toUpperCase(),
+    biosecurityWarning: Boolean(s.biosecurityWarning || s.hasWarning),
+    status: (s.status || 'HEALTHY').toUpperCase(),
+    readyToSell: Boolean(s.readyToSell),
+    priceEstimate: s.estimatedPricePhp ? String(s.estimatedPricePhp) : (s.priceEstimate ? String(s.priceEstimate) : null),
+    photoUrl: s.photoUrl || '',
+    isArchived: Boolean(s.isArchived),
+    registeredAt: s.registeredAt || new Date().toISOString(),
+    customFields: customPayload,
+  };
+}
+
+export async function getAllSwineRecords(filters?: {
+  barangay?: string;
+  search?: string;
+  status?: string;
+  readyToSell?: boolean;
+  isArchived?: boolean;
+  page?: number;
+  perPage?: number;
+}): Promise<{ records: SwineRecord[]; total: number }> {
   try {
-    const records = await db.select().from(swineRecords);
-    if (records.length === 0 && INITIAL_SWINE_RECORDS.length > 0) {
-      // Auto-seed initial records if empty
-      const initialDbRecords = INITIAL_SWINE_RECORDS.map(mapSwineToDb);
-      await db.insert(swineRecords).values(initialDbRecords).onConflictDoNothing();
-      return await db.select().from(swineRecords);
+    const conditions: any[] = [];
+
+    if (filters?.barangay && filters.barangay !== 'all') {
+      conditions.push(ilike(swineRecords.barangay, filters.barangay));
     }
-    return records;
+
+    if (filters?.status && filters.status !== 'all') {
+      conditions.push(ilike(swineRecords.status, filters.status));
+    }
+
+    if (filters?.readyToSell !== undefined) {
+      conditions.push(eq(swineRecords.readyToSell, filters.readyToSell));
+    }
+
+    if (filters?.isArchived !== undefined) {
+      conditions.push(eq(swineRecords.isArchived, filters.isArchived));
+    }
+
+    if (filters?.search && filters.search.trim()) {
+      const q = `%${filters.search.trim()}%`;
+      conditions.push(
+        or(
+          ilike(swineRecords.pigIdTag, q),
+          ilike(swineRecords.earTagNo, q),
+          ilike(swineRecords.farmerName, q),
+          ilike(swineRecords.farmName, q),
+          ilike(swineRecords.barangay, q)
+        )
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    let query = db.select().from(swineRecords);
+    if (whereClause) {
+      query = query.where(whereClause) as any;
+    }
+
+    query = query.orderBy(desc(swineRecords.createdAt)) as any;
+
+    if (filters?.page && filters?.perPage) {
+      const offset = (filters.page - 1) * filters.perPage;
+      query = query.limit(filters.perPage).offset(offset) as any;
+    }
+
+    const rawRows = await query;
+    const records = rawRows.map(mapDbToSwine);
+
+    // Total count calculation
+    let countQuery = db.select({ count: sql<number>`count(*)` }).from(swineRecords);
+    if (whereClause) {
+      countQuery = countQuery.where(whereClause) as any;
+    }
+    const countResult = await countQuery;
+    const total = Number(countResult[0]?.count || records.length);
+
+    return { records, total };
   } catch (error) {
     console.error('Database query failed for getAllSwineRecords:', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    throw new Error('Unable to connect to the Swine Registry database. Please check the backend connection.', { cause: error });
   }
 }
 
-export async function insertSwineRecords(records: any[]) {
+export async function getSwineRecordById(id: string): Promise<SwineRecord | null> {
   try {
-    if (records.length === 0) return [];
-    const dbRecords = records.map(mapSwineToDb);
-    return await db.insert(swineRecords).values(dbRecords).onConflictDoNothing().returning();
+    const rows = await db
+      .select()
+      .from(swineRecords)
+      .where(or(eq(swineRecords.id, id), eq(swineRecords.pigIdTag, id), eq(swineRecords.computedPigId, id)))
+      .limit(1);
+
+    if (rows.length === 0) return null;
+    return mapDbToSwine(rows[0]);
   } catch (error) {
-    console.error('Database query failed for insertSwineRecords:', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    console.error('Database query failed for getSwineRecordById:', error);
+    throw new Error('Unable to connect to the Swine Registry database.', { cause: error });
   }
 }
 
-export async function upsertSwineRecord(record: any) {
+export async function upsertSwineRecord(record: any): Promise<SwineRecord> {
   try {
     const dbRecord = mapSwineToDb(record);
     const result = await db
@@ -70,28 +244,34 @@ export async function upsertSwineRecord(record: any) {
         set: dbRecord,
       })
       .returning();
-    return result[0];
+
+    return mapDbToSwine(result[0]);
   } catch (error) {
     console.error('Database query failed for upsertSwineRecord:', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    throw new Error('Database save failed. Please check the backend connection.', { cause: error });
   }
 }
 
-export async function deleteSwineRecordById(id: string) {
+export async function deleteSwineRecordById(id: string): Promise<boolean> {
   try {
-    return await db.delete(swineRecords).where(eq(swineRecords.id, id)).returning();
+    await db.delete(swineRecords).where(eq(swineRecords.id, id));
+    return true;
   } catch (error) {
     console.error('Database query failed for deleteSwineRecordById:', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    throw new Error('Database deletion failed.', { cause: error });
   }
 }
 
-export async function deleteSwineRecordsByIds(ids: string[]) {
+export async function deleteSwineRecordsByIds(ids: string[]): Promise<number> {
   try {
-    if (ids.length === 0) return [];
-    return await db.delete(swineRecords).where(inArray(swineRecords.id, ids)).returning();
+    if (ids.length === 0) return 0;
+    const result = await db
+      .delete(swineRecords)
+      .where(inArray(swineRecords.id, ids))
+      .returning({ id: swineRecords.id });
+    return result.length;
   } catch (error) {
     console.error('Database query failed for deleteSwineRecordsByIds:', error);
-    throw new Error('Database query failed. Please try again later.', { cause: error });
+    throw new Error('Database bulk delete failed.', { cause: error });
   }
 }

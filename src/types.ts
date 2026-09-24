@@ -425,6 +425,7 @@ export interface CertificateConfig {
 }
 
 export interface IssuedCertificate {
+  id?: string;
   certificateNo: string;
   certificateType?: string;
   formatType?: 'barangay_cert' | 'biosecurity' | 'health' | 'origin' | 'slaughter' | 'registration' | 'custom';

@@ -37,6 +37,7 @@ import {
   UserAccount,
 } from '../types';
 import { LegalImportHistoryRecord } from '../types/legalImport';
+import { indexedDbService } from './indexedDbService';
 import {
   calculateSwineAge,
   classifyFarmScale,
@@ -155,10 +156,6 @@ export const storageService = {
   getSwineRecords(): SwineRecord[] {
     const stored = getItem<SwineRecord[] | null>(STORAGE_KEYS.SWINE, null);
     if (stored === null || stored.length === 0) {
-      if (INITIAL_SWINE_RECORDS && INITIAL_SWINE_RECORDS.length > 0) {
-        setItem(STORAGE_KEYS.SWINE, INITIAL_SWINE_RECORDS);
-        return INITIAL_SWINE_RECORDS;
-      }
       return [];
     }
     // Existing Data Compatibility: Normalize legacy 11-digit formatted contacts (e.g. 0917-888-9999 -> 09178889999)
@@ -180,8 +177,68 @@ export const storageService = {
     return normalized;
   },
 
+  async fetchSwineRecords(params?: { barangay?: string; search?: string; status?: string; readyToSell?: boolean; isArchived?: boolean; page?: number; perPage?: number }): Promise<{ records: SwineRecord[]; total: number }> {
+    const searchParams = new URLSearchParams();
+    if (params?.barangay && params.barangay !== 'all') {
+      searchParams.set('barangay', params.barangay);
+    }
+    if (params?.search) {
+      searchParams.set('search', params.search);
+    }
+    if (params?.status && params.status !== 'all') {
+      searchParams.set('status', params.status);
+    }
+    if (params?.readyToSell !== undefined) {
+      searchParams.set('readyToSell', String(params.readyToSell));
+    }
+    if (params?.isArchived !== undefined) {
+      searchParams.set('isArchived', String(params.isArchived));
+    }
+    if (params?.page) {
+      searchParams.set('page', String(params.page));
+    }
+    if (params?.perPage) {
+      searchParams.set('per_page', String(params.perPage));
+    }
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const user = this.getCurrentUser();
+    if (user) {
+      headers['x-user-role'] = user.role || 'focal';
+      headers['x-user-id'] = user.id || '';
+      headers['x-user-name'] = user.username || user.name || '';
+      if (user.assignedBarangay) headers['x-user-assigned-barangay'] = user.assignedBarangay;
+      if (user.barangay_id) headers['x-user-barangay-id'] = user.barangay_id;
+    }
+
+    const queryString = searchParams.toString();
+    const endpoint = `/api/swine-records${queryString ? `?${queryString}` : ''}`;
+
+    const res = await fetch(endpoint, { method: 'GET', headers });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => null);
+      throw new Error(errJson?.error || 'Unable to connect to the Swine Registry database. Please check the backend connection.');
+    }
+
+    const json = await res.json();
+    if (!json.success) {
+      throw new Error(json.error || 'Failed to retrieve swine records from database.');
+    }
+
+    const records: SwineRecord[] = json.data || [];
+    this.saveSwineRecords(records);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('swine_records_updated', { detail: records }));
+    }
+
+    return { records, total: json.total ?? records.length };
+  },
+
   saveSwineRecords(records: SwineRecord[]): void {
     setItem(STORAGE_KEYS.SWINE, records);
+    if (typeof window !== 'undefined') {
+      indexedDbService.putBatch('swineRecords', records).catch(() => {});
+    }
   },
 
   addSwineRecord(record: SwineRecord): void {
@@ -601,7 +658,7 @@ export const storageService = {
   // Messages
   getMessages(): MessageItem[] {
     const stored = getItem<MessageItem[] | null>(STORAGE_KEYS.MESSAGES, null);
-    const raw = (!stored || stored.length === 0) ? INITIAL_MESSAGES : stored;
+    const raw = stored || [];
     return raw.map(m => ({
       ...m,
       subject: m.subject || m.title || 'Official Advisory',
@@ -729,12 +786,8 @@ export const storageService = {
   },
 
   getAllIssuedCertificatesUnfiltered(): IssuedCertificate[] {
-    let list = getItem<IssuedCertificate[]>(STORAGE_KEYS.CERT_ISSUED, []);
-    if (!list || list.length === 0) {
-      list = [...INITIAL_ISSUED_CERTIFICATES];
-      setItem(STORAGE_KEYS.CERT_ISSUED, list);
-    }
-    return list;
+    const list = getItem<IssuedCertificate[]>(STORAGE_KEYS.CERT_ISSUED, []);
+    return list || [];
   },
 
   getIssuedCertificates(user?: UserAccount | null): IssuedCertificate[] {
@@ -1148,6 +1201,16 @@ Prepared for regional trade accreditation and ASF Green Zone maintenance.`,
     queue.push(item);
     setItem(STORAGE_KEYS.OFFLINE_QUEUE, queue);
     window.dispatchEvent(new CustomEvent('da_offline_queue_update', { detail: { count: queue.length } }));
+
+    if (typeof window !== 'undefined') {
+      const dataObj = item.data as Record<string, any> | undefined;
+      indexedDbService.enqueueSyncItem(
+        item.action as any,
+        item.entity as any,
+        dataObj?.id || item.id,
+        item.data
+      ).catch(() => {});
+    }
   },
 
   clearOfflineQueue(): void {
@@ -1173,11 +1236,7 @@ Prepared for regional trade accreditation and ASF Green Zone maintenance.`,
   // Barangay Biosecurity Audits
   getBiosecurityAudits(): BarangayBiosecurityAudit[] {
     const stored = getItem<BarangayBiosecurityAudit[] | null>(STORAGE_KEYS.BIOSECURITY_AUDITS, null);
-    if (stored === null) {
-      setItem(STORAGE_KEYS.BIOSECURITY_AUDITS, INITIAL_BIOSECURITY_AUDITS);
-      return INITIAL_BIOSECURITY_AUDITS;
-    }
-    return stored;
+    return stored || [];
   },
 
   saveBiosecurityAudits(audits: BarangayBiosecurityAudit[]): void {
@@ -1203,11 +1262,7 @@ Prepared for regional trade accreditation and ASF Green Zone maintenance.`,
   // Biosecurity Incidents
   getBiosecurityIncidents(): BiosecurityIncident[] {
     const stored = getItem<BiosecurityIncident[] | null>(STORAGE_KEYS.BIOSECURITY_INCIDENTS, null);
-    if (stored === null) {
-      setItem(STORAGE_KEYS.BIOSECURITY_INCIDENTS, INITIAL_BIOSECURITY_INCIDENTS);
-      return INITIAL_BIOSECURITY_INCIDENTS;
-    }
-    return stored;
+    return stored || [];
   },
 
   saveBiosecurityIncidents(incidents: BiosecurityIncident[]): void {
@@ -1232,11 +1287,7 @@ Prepared for regional trade accreditation and ASF Green Zone maintenance.`,
   // Swine Marketing Alerts
   getMarketingAlerts(): MarketingAlert[] {
     const stored = getItem<MarketingAlert[] | null>(STORAGE_KEYS.MARKETING_ALERTS, null);
-    if (stored === null) {
-      setItem(STORAGE_KEYS.MARKETING_ALERTS, INITIAL_MARKETING_ALERTS);
-      return INITIAL_MARKETING_ALERTS;
-    }
-    return stored;
+    return stored || [];
   },
 
   saveMarketingAlerts(alerts: MarketingAlert[]): void {
@@ -1275,11 +1326,7 @@ Prepared for regional trade accreditation and ASF Green Zone maintenance.`,
   // Swine Take-Off Records
   getTakeoffRecords(): SwineTakeoffRecord[] {
     const stored = getItem<SwineTakeoffRecord[] | null>(STORAGE_KEYS.TAKEOFF_RECORDS, null);
-    if (stored === null) {
-      setItem(STORAGE_KEYS.TAKEOFF_RECORDS, INITIAL_TAKEOFF_RECORDS);
-      return INITIAL_TAKEOFF_RECORDS;
-    }
-    return stored;
+    return stored || [];
   },
 
   saveTakeoffRecords(records: SwineTakeoffRecord[]): void {
