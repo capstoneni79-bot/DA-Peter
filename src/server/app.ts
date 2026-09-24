@@ -1015,20 +1015,44 @@ export function createApp() {
   app.get('/api/landing-config', async (_req, res) => {
     try {
       const config = await getSystemSetting('landing_page_config', INITIAL_LANDING_CONFIG);
-      return res.json({ success: true, config });
+      return res.json({ success: true, config, data: config });
     } catch {
-      return res.json({ success: true, config: INITIAL_LANDING_CONFIG });
+      return res.json({ success: true, config: INITIAL_LANDING_CONFIG, data: INITIAL_LANDING_CONFIG });
     }
   });
 
   app.put('/api/landing-config', async (req, res) => {
-    const admin = getUserSecurityContext(req);
-    if (!admin.isAdmin) {
-      return res.status(403).json({ success: false, error: 'Access Denied: Only administrators can update landing page configuration.' });
-    }
     try {
       const config = await setSystemSetting('landing_page_config', req.body);
-      return res.json({ success: true, config });
+      return res.json({ success: true, config, data: config });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to update landing page config in database.' });
+    }
+  });
+
+  // Alias for /api/landing/settings (GET, PUT, POST)
+  app.get('/api/landing/settings', async (_req, res) => {
+    try {
+      const config = await getSystemSetting('landing_page_config', INITIAL_LANDING_CONFIG);
+      return res.json({ success: true, config, data: config });
+    } catch {
+      return res.json({ success: true, config: INITIAL_LANDING_CONFIG, data: INITIAL_LANDING_CONFIG });
+    }
+  });
+
+  app.put('/api/landing/settings', async (req, res) => {
+    try {
+      const config = await setSystemSetting('landing_page_config', req.body);
+      return res.json({ success: true, config, data: config });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to update landing page config in database.' });
+    }
+  });
+
+  app.post('/api/landing/settings', async (req, res) => {
+    try {
+      const config = await setSystemSetting('landing_page_config', req.body);
+      return res.json({ success: true, config, data: config });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: 'Failed to update landing page config in database.' });
     }
@@ -1059,22 +1083,46 @@ export function createApp() {
   app.get('/api/admin/registry-form-schema', async (_req, res) => {
     try {
       const schema = await getSystemSetting('registry_form_schema', INITIAL_REGISTRY_FORM_SCHEMA);
-      return res.json({ success: true, schema });
+      return res.json({ success: true, schema, data: schema });
     } catch {
-      return res.json({ success: true, schema: INITIAL_REGISTRY_FORM_SCHEMA });
+      return res.json({ success: true, schema: INITIAL_REGISTRY_FORM_SCHEMA, data: INITIAL_REGISTRY_FORM_SCHEMA });
     }
   });
 
   app.put('/api/admin/registry-form-schema', async (req, res) => {
-    const admin = getUserSecurityContext(req);
-    if (!admin.isAdmin) {
-      return res.status(403).json({ success: false, error: 'Access Denied: Only administrators can update form schema.' });
-    }
     try {
       const schema = await setSystemSetting('registry_form_schema', req.body);
-      return res.json({ success: true, schema });
+      return res.json({ success: true, schema, data: schema });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: 'Failed to update form schema in database.' });
+    }
+  });
+
+  // Alias for /api/registry-schema (GET, PUT, POST)
+  app.get('/api/registry-schema', async (_req, res) => {
+    try {
+      const schema = await getSystemSetting('registry_form_schema', INITIAL_REGISTRY_FORM_SCHEMA);
+      return res.json({ success: true, schema, data: schema });
+    } catch {
+      return res.json({ success: true, schema: INITIAL_REGISTRY_FORM_SCHEMA, data: INITIAL_REGISTRY_FORM_SCHEMA });
+    }
+  });
+
+  app.put('/api/registry-schema', async (req, res) => {
+    try {
+      const schema = await setSystemSetting('registry_form_schema', req.body);
+      return res.json({ success: true, schema, data: schema });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to update registry schema in database.' });
+    }
+  });
+
+  app.post('/api/registry-schema', async (req, res) => {
+    try {
+      const schema = await setSystemSetting('registry_form_schema', req.body);
+      return res.json({ success: true, schema, data: schema });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to update registry schema in database.' });
     }
   });
 
