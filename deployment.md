@@ -116,6 +116,13 @@ CREATE TABLE IF NOT EXISTS public.swine_records (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Safely add location and custom_fields if the table already existed previously
+ALTER TABLE public.swine_records 
+  ADD COLUMN IF NOT EXISTS location geometry(Point, 4326);
+
+ALTER TABLE public.swine_records 
+  ADD COLUMN IF NOT EXISTS custom_fields JSONB DEFAULT '{}'::jsonb;
+
 CREATE INDEX IF NOT EXISTS idx_swine_barangay ON public.swine_records(barangay);
 CREATE INDEX IF NOT EXISTS idx_swine_status ON public.swine_records(status);
 CREATE INDEX IF NOT EXISTS idx_swine_ready_to_sell ON public.swine_records(ready_to_sell);
